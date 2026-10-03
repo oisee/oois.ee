@@ -14,7 +14,8 @@
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:46rem;margin:0 auto;padding:2rem 1rem 4rem}
 .hero{display:block;width:100%;height:auto;border-radius:10px;margin:0 0 2rem}
-h1{font-size:1.6rem;margin:0 0 .25rem}
+h1{font-size:1.6rem;margin:0 0 .25rem;display:flex;align-items:center;gap:.6rem}
+h1 img{width:40px;height:40px;border-radius:50%}
 p{color:var(--muted);margin:.25rem 0 1.5rem}
 ul{padding-left:1.1rem}li{margin:.5rem 0}
 a{color:var(--accent)}
@@ -23,7 +24,7 @@ a{color:var(--accent)}
 <body>
 <main>
 <img class="hero" src="vibing-steampunk.jpg" srcset="vibing-steampunk-744.jpg 744w, vibing-steampunk.jpg 1488w" sizes="(max-width: 46rem) 100vw, 44rem" width="1488" height="800" alt="Illustration: a developer with headphones and round glasses typing ABAP on a laptop in an airship cabin above the clouds">
-<h1>oisee</h1>
+<h1><img src="avatar.png" width="40" height="40" alt="">oisee</h1>
 <p>Open-source tools for ABAP developers.</p>
 <ul>
 <li><a href="https://github.com/oisee/open-steamgate">open-steamgate</a> — a local ABAP server in VS Code</li>
