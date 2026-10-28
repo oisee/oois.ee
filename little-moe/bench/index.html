@@ -122,6 +122,19 @@ ul{margin:0 0 12px;padding-left:20px}
 </figure>
 
 <section class="col">
+  <h2>First field run on Windows: one 16 GB card</h2>
+  <p>A tester ran the packaged kit (<a href="https://github.com/oisee/llama.cpp/releases/tag/cnm-serve-v0.3">cnm-serve v0.3</a>) on an RTX 4080 16 GB with 128 GB RAM under Windows 10, using the full IQ3_S 512 with the graded bias cap −1 and no MTP. The client was the Continue extension in VS Code.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Setup</th><th class="n">Decode t/s</th><th>Note</th></tr></thead>
+    <tbody>
+    <tr class="best"><td>RTX 4080 16 GB, Windows 10, no MTP</td><td class="n">40.6</td><td>from the llama-server log, one reply of 435 tokens at about 3K context</td></tr>
+    <tr><td>Estimate before the run</td><td class="n">20–35</td><td>computed from VRAM, not measured</td></tr>
+    <tr><td>Two RTX 4060 Ti 16 GB (i7), no MTP</td><td class="n">~33</td><td>for comparison; with MTP 48–52</td></tr>
+    </tbody></table></div>
+  <p>A single card beat the estimate and the two-card box without MTP. A faster GPU and a PCIe 4.0 slot (i7 is PCIe 3.0 x8) are the likely reasons, but this is one reply, not a median. Prefill was not measured: that prompt was 92 tokens. GPU "shared memory" showed about 47 GB, which is the pinned host memory holding the experts, as intended. The first Windows run also found a download bug, fixed in v0.3.</p>
+</section>
+
+<section class="col">
   <h2>Repository tasks (PR-6) on the full model at home</h2>
   <p>PR-6 tasks are cut from real merged pull requests, from L1 (small) to L3 (large), and are graded by the PR's own hidden tests. Full IQ3_S 512 on i7, graded bias cap −1, MTP, Claude Code harness, time limits ×5.</p>
   <div class="tw"><table>
