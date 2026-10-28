@@ -1,0 +1,195 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="icon" href="../../avatar.png"><title>Little MoE Bench Notes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Bench notes for the little-MoE project: graded soft router bias on an 8 GB and a 2×16 GB box, and agent-task results of the full 512-expert model at home.">
+<style>
+/* layout: same reading column and tokens as "I only wanted to run a little MoE"; charts break out to 920px */
+:root{color-scheme:light;--bg:#f2f4f0;--paper:#fffefa;--fg:#182a2a;--muted:#596968;--rule:#d1dbd5;--accent:#137d72;--soft:#e0efe8;--gold:#aa650c;--gold-soft:#fff0d6;
+  --s1:#0a8f7f;--s2:#c0660a;--bar:#a9b9b4;--hatch:#c9d3cf;
+  --display:Georgia,"Iowan Old Style",serif;--body:system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,Menlo,monospace}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#111c1c;--paper:#192727;--fg:#e9f0e9;--muted:#adbfba;--rule:#3b514c;--accent:#75d6bb;--soft:#25483e;--gold:#ffd17d;--gold-soft:#4b3820;--s1:#1f9a8a;--s2:#c97a26;--bar:#4f625d;--hatch:#3a4b47}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#111c1c;--paper:#192727;--fg:#e9f0e9;--muted:#adbfba;--rule:#3b514c;--accent:#75d6bb;--soft:#25483e;--gold:#ffd17d;--gold-soft:#4b3820;--s1:#1f9a8a;--s2:#c97a26;--bar:#4f625d;--hatch:#3a4b47}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.65 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:920px;margin:0 auto;padding-block:40px 80px;display:grid;gap:30px}
+main>*{min-width:0}
+.col{max-width:72ch;width:100%;margin:0 auto}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+h1{font-size:clamp(1.9rem,4.5vw,2.8rem);line-height:1.1}
+h2{font-size:1.45rem;margin-bottom:8px}
+h3{font-size:1.02rem;margin:4px 0 6px;font-weight:600;font-family:var(--body)}
+p{margin:0 0 12px}
+.eyebrow{font:500 .78rem/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.live{background:var(--gold-soft);border-left:3px solid var(--gold);padding:10px 14px;border-radius:0 8px 8px 0;font-size:.95rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.stat{background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:14px 16px}
+.stat b{display:block;font:600 1.9rem/1.1 var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+.stat span{color:var(--muted);font-size:.9rem}
+figure{margin:0;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:16px 18px}
+figcaption{color:var(--muted);font-size:.88rem;margin-top:8px;line-height:1.45}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.charts>div{min-width:0}
+.charts.one{grid-template-columns:1fr}
+svg{display:block;width:100%;height:auto}
+svg text{fill:var(--muted);font:12px var(--body)}
+svg .lbl{fill:var(--fg)}
+svg .val{fill:var(--fg);font:12px var(--mono)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);margin:6px 0 2px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{padding:7px 10px;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:.8rem;white-space:nowrap}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+tr.best td{background:var(--soft);font-weight:600}
+details{margin-top:10px}
+summary{cursor:pointer;color:var(--accent);font-size:.9rem}
+.src{color:var(--muted);font-size:.84rem}
+.tip{position:fixed;pointer-events:none;background:var(--fg);color:var(--bg);font-size:.82rem;padding:6px 9px;border-radius:6px;max-width:260px;z-index:20;opacity:0;transition:opacity .1s}
+a{color:var(--accent)}
+code{font-family:var(--mono);font-size:.88em}
+ul{margin:0 0 12px;padding-left:20px}
+</style>
+<main>
+<header class="col">
+  <div class="eyebrow">cnm · bench notes · live · October 2026</div>
+  <h1>Little MoE bench notes</h1>
+  <p class="src">Follow-up to <a href="https://oois.ee/little-moe/">I only wanted to run a little MoE</a>. Measured results only. Medians of 3 unless stated, one agent run per task.</p>
+</header>
+
+<p class="col live">Live notes. The overnight runs (agent tasks on the graded bias, PR-6 on both boxes) are still going; this page fills in as results land.</p>
+
+<section class="stats" aria-label="Headline numbers">
+  <div class="stat"><b>11 / 11</b><span>SMOKE tasks solved by the full model at home (flat bias −0.75)</span></div>
+  <div class="stat"><b>+10.5%</b><span>decode on an 8 GB card with the graded bias (18.92 vs 17.13 t/s)</span></div>
+  <div class="stat"><b>49.0 t/s</b><span>graded bias at matched strength on 2×16 GB, vs 47.4 flat</span></div>
+</section>
+
+<figure aria-label="How the pieces fit">
+  <h3>The recipe</h3>
+  <svg id="recipe" viewBox="0 0 880 150" role="img" aria-label="Agent sessions to LxEU profile to hot set to graded bias to expert cache to MTP"></svg>
+  <figcaption>Recorded agent sessions give a per-(layer, expert) profile, split by phase (explore, edit, verify). The hot set is sized to the GPU cache. A graded bias nudges the router toward it, the upstream SLRU expert cache keeps it resident, and MTP drafts ride on top. All 512 experts stay reachable.</figcaption>
+</figure>
+
+<section class="col">
+  <h2>Graded versus flat bias on an 8 GB card</h2>
+  <p>i5: RTX 2070 8 GB, PCIe 3.0, full IQ2_XS 512 experts, expert cache 3.5 GB, pinned memory, <code>-ub 512</code>, no MTP. The graded bias is <code>max(cap, ln(b / b_edge))</code> on the cold set: experts just below the hot-set edge are barely penalised, the deep tail gets the cap.</p>
+</section>
+<figure>
+  <div class="legend"><span><i style="background:var(--bar)"></i>other arms</span><span><i style="background:var(--s1)"></i>best arm</span><span><i style="background:var(--hatch)"></i>no bias</span></div>
+  <div class="charts one">
+    <div><h3>Decode, tokens/s</h3><svg id="i5dec"></svg></div>
+    <div><h3>Prefill 8K, tokens/s</h3><svg id="i5pp"></svg></div>
+    <div><h3>Expert-cache hit rate, %</h3><svg id="i5hit"></svg></div>
+  </div>
+  <figcaption>The graded bias with a −2 cap wins on all three. A hard PB3-64 edge does not beat the bigger PB3-192 set. Caveat: the cap −2 file has a mean penalty of −1.4, stronger than flat −1, so part of the gain may come from more bias; a flat −1.4 control is owed, and quality under it is not measured yet.</figcaption>
+  <details><summary>Table view</summary><div class="tw"><table id="t-i5"></table></div></details>
+</figure>
+
+<section class="col">
+  <h2>Graded versus flat at matched strength on 2×16 GB</h2>
+  <p>i7: two RTX 4060 Ti 16 GB, full IQ3_S 512 experts, expert cache 17 GB, MTP drafts, <code>-ub 512</code>, pinned memory. Four arms in one session with flags identical to the reference run. The graded cap −1 has a mean penalty of −0.80, matching the flat −0.75, so the difference comes from the grading itself.</p>
+</section>
+<figure>
+  <div class="legend"><span><i style="background:var(--hatch)"></i>flat −0.75 reference</span><span><i style="background:var(--s1)"></i>graded cap −1 (chosen)</span><span><i style="background:var(--bar)"></i>stronger caps</span></div>
+  <div class="charts">
+    <div><h3>Decode, tokens/s (MTP acceptance in brackets)</h3><svg id="i7dec"></svg></div>
+    <div><h3>Prefill 8K, tokens/s</h3><svg id="i7pp"></svg></div>
+  </div>
+  <figcaption>Graded cap −1 is +3% decode and +4% prefill over flat at the same strength. Prefill rises steadily with the cap. The cap −1.5 decode dip is MTP acceptance (62%): a stronger bias changes the generated text and the draft head guesses it worse. One synthetic prompt, so decode is noisy; prefill is the steadier signal. Choice rule fixed in advance: the fastest graded cap, unless within 3% of cap −1, in which case cap −1. The flat reference repeated the previous day: 47.38 vs 47.98 decode.</figcaption>
+  <details><summary>Table view</summary><div class="tw"><table id="t-i7"></table></div></details>
+</figure>
+
+<section class="col">
+  <h2>Agent tasks on the full model at home</h2>
+  <p>Full IQ3_S 512 on i7, flat bias −0.75, MTP, Claude Code harness at xhigh effort, time limits ×5, graded by hidden tests. Bar length is wall time. <code>osg-l0-body-003</code> is excluded from SMOKE: no model has solved it.</p>
+</section>
+<figure>
+  <div class="legend"><span><i style="background:var(--s1)"></i>solved</span><span><i style="background:var(--hatch)"></i>solved, time inflated (shared the server with another run)</span></div>
+  <svg id="tasks"></svg>
+  <figcaption>11 of 11 solved. Two times are inflated: block-015 and core-body-018 ran while a second agent shared the one-slot server (21:45–22:44), so only their result counts. Earlier runs on the same tasks: line-018 1,494 s and apc-002 1,489 s on the older standard-offload setup; block-015 900 s on PB3-208 in the cloud. Graded-bias runs of the same tasks are under way.</figcaption>
+  <details><summary>Table view</summary><div class="tw"><table id="t-tasks"></table></div></details>
+</figure>
+
+<section class="col">
+  <h2>Other 8 GB findings</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Question</th><th>Result</th></tr></thead>
+    <tbody>
+    <tr><td>Pinned vs mmap host memory</td><td>Pinned decode 17.06 vs 16.21 t/s (+5%), prefill 140.5 vs 112.3 (+25%); A/B interleaved. Huge pages gave nothing measurable.</td></tr>
+    <tr><td>IQ3_S with bias (cache 2.5 GB)</td><td>11.93 → 12.38 (−0.75) → 12.79 t/s (−1); hit 44% → 53%.</td></tr>
+    <tr><td>MTP on the 2070</td><td>Loses: 11.0–14.0 t/s against 17.13 without it. The draft head leaves too little cache; hit drops to 1–11%.</td></tr>
+    <tr><td>Phase-aware preload</td><td>Misses after a phase change 42.4% vs 41.7% within a phase. A small cache turns over every request; closed for 8 GB cards.</td></tr>
+    </tbody></table></div>
+  <p class="src">Sources: runs/2026-10-27-lru-thp-i5/ (REPORT.md, bias-runs/*/result.json), runs/2026-10-27-tiers-speed-i7/*calib*/result.json, bench lane bench-s14-gate-smoke runs/&lt;task&gt;/custom-fulliq3s-b075-claude-*/result.json; task package 573676f.</p>
+</section>
+</main>
+<div class="tip" id="tip" role="tooltip"></div>
+<script>
+(function(){
+'use strict';
+const NS='http://www.w3.org/2000/svg';
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
+const tip=document.getElementById('tip');
+function showTip(ev,html){tip.innerHTML=html;tip.style.opacity=1;const x=Math.min(ev.clientX+12,innerWidth-270);tip.style.left=x+'px';tip.style.top=(ev.clientY+12)+'px'}
+function hideTip(){tip.style.opacity=0}
+const fmt=(v,d)=>Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* horizontal bar chart; rows: {k, v, fill, note} ; domain from lo */
+function hbar(id,rows,o){
+  const svg=document.getElementById(id);svg.textContent='';
+  const W=o.w||420,LW=o.lw||150,H=rows.length*30+28,X0=LW,X1=W-48;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.setAttribute('role','img');svg.setAttribute('aria-label',o.label);
+  const lo=o.lo||0,hi=o.hi||Math.max(...rows.map(r=>r.v))*1.08;const x=v=>X0+(v-lo)/(hi-lo)*(X1-X0);
+  const ticks=o.ticks||[];ticks.forEach(t=>{el('line',{x1:x(t),x2:x(t),y1:4,y2:H-22,stroke:'var(--rule)'},svg);const tt=el('text',{x:x(t),y:H-6,'text-anchor':'middle'},svg);tt.textContent=t});
+  rows.forEach((r,i)=>{const y=6+i*30;
+    const l=el('text',{x:X0-8,y:y+15,'text-anchor':'end',class:'lbl'},svg);l.textContent=r.k;
+    const g=el('g',{tabindex:0},svg);
+    const w=Math.max(2,x(r.v)-X0);
+    el('rect',{x:X0,y:y+2,width:w,height:18,rx:4,fill:r.fill||'var(--bar)'},g);
+    if(r.hatch){for(let hx=X0+4;hx<X0+w;hx+=7)el('line',{x1:hx,y1:y+20,x2:Math.min(hx+6,X0+w),y2:y+3,stroke:'var(--paper)','stroke-width':1.5},g)}
+    const v=el('text',{x:X0+w+6,y:y+15,class:'val'},g);v.textContent=(o.vfmt?o.vfmt(r):fmt(r.v,o.d??2));
+    const h=()=>r.note||`${r.k}: ${v.textContent}`;
+    g.addEventListener('mousemove',e=>showTip(e,h()));g.addEventListener('mouseleave',hideTip);
+    g.addEventListener('focus',()=>{const b=g.getBoundingClientRect();showTip({clientX:b.left,clientY:b.bottom},h())});g.addEventListener('blur',hideTip);
+  });
+}
+function table(id,head,rows,best){
+  const t=document.getElementById(id);t.innerHTML='<thead><tr>'+head.map((h,i)=>`<th${i?' class="n"':''}>${h}</th>`).join('')+'</tr></thead><tbody>'+
+    rows.map(r=>`<tr${r[0]===best?' class="best"':''}>`+r.map((c,i)=>`<td${i?' class="n"':''}>${c}</td>`).join('')+'</tr>').join('')+'</tbody>';
+}
+
+/* recipe infographic */
+(function(){const svg=document.getElementById('recipe');
+  const steps=[['Agent sessions','recorded traffic'],['LxEU profile','layer × expert, by phase'],['Hot set','sized to the cache'],['Graded bias','nudge, not cut'],['SLRU cache','upstream llama.cpp'],['MTP drafts','52 t/s on 2×16 GB']];
+  const bw=128,gap=22,y=34;steps.forEach((s,i)=>{const x=6+i*(bw+gap);
+    el('rect',{x,y,width:bw,height:62,rx:10,fill:i===3?'var(--soft)':'var(--paper)',stroke:i===3?'var(--accent)':'var(--rule)','stroke-width':i===3?2:1},svg);
+    const a=el('text',{x:x+bw/2,y:y+26,'text-anchor':'middle',class:'lbl','font-weight':'600'},svg);a.textContent=s[0];
+    const b=el('text',{x:x+bw/2,y:y+45,'text-anchor':'middle','font-size':'11'},svg);b.textContent=s[1];
+    if(i<steps.length-1){const ax=x+bw+3;el('path',{d:`M${ax},${y+31} L${ax+gap-7},${y+31}`,stroke:'var(--muted)','stroke-width':1.5},svg);el('path',{d:`M${ax+gap-7},${y+26} L${ax+gap-2},${y+31} L${ax+gap-7},${y+36} Z`,fill:'var(--muted)'},svg)}
+  });
+  const t=el('text',{x:6,y:20,'font-size':'12'},svg);t.textContent='profile once per model  →  size per machine  →  serve';
+  const u=el('text',{x:6,y:128,'font-size':'12'},svg);u.textContent='Same bench grades every step: hidden tests, real agent tasks, no SAP system.';
+})();
+
+/* i5 */
+const I5=[['none',17.13,141,61.2],['PB3-192 flat −0.5',17.25,155,65.7],['PB3-192 flat −0.75',17.60,167,66.3],['PB3-192 flat −1',18.23,182,69.6],['PB3-64 hard −1',17.28,159,68.3],['PB3-64 hard −0.75',17.00,152,65.8],['PB3-48 hard −1',17.85,155,68.4],['PB3-64 graded, cap −1',18.02,163,68.8],['PB3-64 graded, cap −2',18.92,202,73.7]];
+const fillI5=k=>k.endsWith('cap −2')?'var(--s1)':(k==='none'?'var(--hatch)':'var(--bar)');
+hbar('i5dec',I5.map(r=>({k:r[0],v:r[1],fill:fillI5(r[0]),hatch:r[0]==='none'})),{label:'i5 decode tokens per second by bias arm',w:640,lw:190,lo:16,hi:19.5,ticks:[16,17,18,19],d:2});
+hbar('i5pp',I5.map(r=>({k:r[0],v:r[2],fill:fillI5(r[0]),hatch:r[0]==='none'})),{label:'i5 prefill tokens per second by bias arm',w:640,lw:190,lo:0,hi:220,ticks:[0,100,200],d:0});
+hbar('i5hit',I5.map(r=>({k:r[0],v:r[3],fill:fillI5(r[0]),hatch:r[0]==='none'})),{label:'i5 cache hit rate by bias arm',w:640,lw:190,lo:50,hi:80,ticks:[50,60,70,80],d:1});
+table('t-i5',['Bias','Decode t/s','Prefill t/s','Hit %'],I5.map(r=>[r[0],fmt(r[1],2),r[2],fmt(r[3],1)]),'PB3-64 graded, cap −2');
+
+/* i7 */
+const I7=[['flat −0.75',47.38,88,164.1,'−0.75'],['graded cap −1',48.99,93,171.0,'−0.80'],['graded cap −1.5',39.23,62,177.3,'−1.07'],['graded cap −2',49.24,91,186.2,'−1.28']];
+const fillI7=k=>k==='graded cap −1'?'var(--s1)':(k==='flat −0.75'?'var(--hatch)':'var(--bar)');
+hbar('i7dec',I7.map(r=>({k:r[0],v:r[1],fill:fillI7(r[0]),hatch:r[0]==='flat −0.75',acc:r[2],note:`${r[0]}: ${fmt(r[1],2)} t/s, MTP acceptance ${r[2]}%, mean penalty ${r[4]}`})),{label:'i7 decode by bias arm',lw:120,lo:30,hi:54,ticks:[30,40,50],vfmt:r=>`${fmt(r.v,2)} (${r.acc}%)`});
+hbar('i7pp',I7.map(r=>({k:r[0],v:r[3],fill:fillI7(r[0]),hatch:r[0]==='flat −0.75'})),{label:'i7 prefill by bias arm',lw:120,lo:0,hi:210,ticks:[0,100,200],d:0});
+table('t-i7',['Bias','Decode t/s','MTP acc %','Prefill t/s','Mean penalty'],I7.map(r=>[r[0],fmt(r[1],2),r[2],fmt(r[3],0),r[4]]),'graded cap −1');
+
+/* tasks: seconds */
+const T=[['osg-l0-line-018',303],['zvdb-l0-line-003',243],['zork-abap-l0-block-002',312],['pia-l0-block-001',481],['zvdb-l0-body-001',530],['zmjs-l1-method-003',571],['abapgit-l0-line-018',723],['open-abap-apc-l1-method-002',725],['open-abap-core-l1-method-013',1486],['open-abap-core-l0-body-018',3501,1],['abapgit-l0-block-015',3838,1]];
+hbar('tasks',T.map(r=>({k:r[0],v:r[1]/60,fill:r[2]?'var(--hatch)':'var(--s1)',hatch:!!r[2],note:`${r[0]}: solved in ${fmt(r[1],0)} s`+(r[2]?' (time inflated: shared server)':'')})),{label:'agent task wall time in minutes',w:640,lw:220,lo:0,hi:70,ticks:[0,15,30,45,60],vfmt:r=>`${fmt(r.v,1)} min`});
+table('t-tasks',['Task','Result','Time, s'],T.map(r=>[r[0],'solved',fmt(r[1],0)+(r[2]?' *':'')]),'');
+})();
+</script>
+</html>
