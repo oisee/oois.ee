@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="icon" href="../../avatar.png"><title>Little MoE Bench Notes</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Bench notes for the little-MoE project: graded soft router bias on an 8 GB and a 2×16 GB box, and agent-task results of the full 512-expert model at home.">
+<meta name="description" content="Bench notes for the little-MoE project: graded soft router bias on an 8 GB and a 2×16 GB box, its KL cost, cold-expert formats, and agent-task results of the full 512-expert model at home.">
 <style>
 /* layout: same reading column and tokens as "I only wanted to run a little MoE"; charts break out to 920px */
 :root{color-scheme:light;--bg:#f2f4f0;--paper:#fffefa;--fg:#182a2a;--muted:#596968;--rule:#d1dbd5;--accent:#137d72;--soft:#e0efe8;--gold:#aa650c;--gold-soft:#fff0d6;
@@ -56,12 +56,13 @@ ul{margin:0 0 12px;padding-left:20px}
   <p class="src">Follow-up to <a href="https://oois.ee/little-moe/">I only wanted to run a little MoE</a>. Measured results only. Medians of 3 unless stated, one agent run per task.</p>
 </header>
 
-<p class="col live">Live notes. PR-6 L3b on i7 and PR-6 on the 8 GB box are still running; this page fills in as results land.</p>
+<p class="col live">Live notes. In progress: a two-bank file for a 16 GB + 8 GB pair, with 144 hot experts per layer in IQ3_S and the cold rest in Q2_0 (71.88 GB); no speed numbers yet. PR-6 L3b on i7 and the remaining PR-6 tasks on the 8 GB box are paused. This page fills in as results land.</p>
 
 <section class="stats" aria-label="Headline numbers">
   <div class="stat"><b>11 / 11 ×2</b><span>SMOKE tasks solved at home, with flat −0.75 and with graded cap −1</span></div>
   <div class="stat"><b>+10.5%</b><span>decode on an 8 GB card with the graded bias (18.92 vs 17.13 t/s)</span></div>
   <div class="stat"><b>49.0 t/s</b><span>graded bias at matched strength on 2×16 GB, vs 47.4 flat</span></div>
+  <div class="stat"><b>0.505</b><span>KL cost of graded cap −1, vs 0.570 for flat −0.75 at the same strength and 0.904 for a hard mask</span></div>
 </section>
 
 <figure aria-label="How the pieces fit">
@@ -97,6 +98,46 @@ ul{margin:0 0 12px;padding-left:20px}
   </div>
   <figcaption>Graded cap −1 is +3% decode and +4% prefill over flat at the same strength. Prefill rises steadily with the cap. The cap −1.5 decode dip is MTP acceptance (62%): a stronger bias changes the generated text and the draft head guesses it worse. One synthetic prompt, so decode is noisy; prefill is the steadier signal. Choice rule fixed in advance: the fastest graded cap, unless within 3% of cap −1, in which case cap −1. The flat reference repeated the previous day: 47.38 vs 47.98 decode.</figcaption>
   <details><summary>Table view</summary><div class="tw"><table id="t-i7"></table></div></details>
+</figure>
+
+<section class="col">
+  <h2>The price of the router bias</h2>
+  <p>A bias changes which experts the router picks, so it changes the output. KL divergence measures how far the next-token distribution moves: full IQ3_S 512 with each bias file against the same model without bias, 7 held-out agent texts, 120,773 scored tokens, <code>llama-perplexity</code> on one 96 GB cloud GPU. Lower means closer to the unbiased model. The hard PB3-192 arm masks every expert outside the hot set, which is what pruning to 192 experts per layer does.</p>
+</section>
+<figure>
+  <div class="legend"><span><i style="background:var(--s2)"></i>hard mask (= pruning)</span><span><i style="background:var(--hatch)"></i>flat −0.75 reference</span><span><i style="background:var(--s1)"></i>graded cap −1 (kit default)</span><span><i style="background:var(--bar)"></i>other arms</span></div>
+  <svg id="bkl"></svg>
+  <figcaption>Graded cap −1 on PB3-192, the default in the kit, moves the output less than flat −0.75 at the same mean strength (0.505 vs 0.570, lower on all 7 texts) and less than half as much as the hard mask (0.904). Only flat −0.5 is gentler, and it is also the weakest nudge. A smaller hot set costs more: graded cap −1 on PB3-64 is 0.621. KL is not pass rate: flat −0.75 and graded cap −1 both solve 11 of 11 SMOKE tasks below, and no task result yet shows the gap between them.</figcaption>
+  <details><summary>Table view</summary><div class="tw"><table id="t-bkl"></table></div></details>
+  <p class="src">Source: runs/2026-10-28-s19-d-pod/ (REPORT.md, result.json, bias block).</p>
+</figure>
+
+<section class="col">
+  <h2>Cheaper cold experts: what each format costs</h2>
+  <p>In a hot/cold split the 256 most-used experts per layer (PB3 top-256) stay in IQ3_S and the other 256 take a smaller format. KL against full IQ3_S 512 on the 3 texts that every variant finished (61,410 scored tokens), all on GPU. Size is the routed-expert bytes only.</p>
+</section>
+<figure>
+  <div class="legend"><span><i style="background:var(--s1)"></i>best</span><span><i style="background:var(--bar)"></i>hot/cold splits</span><span><i style="background:var(--hatch)"></i>whole model IQ2_XS, no split</span></div>
+  <svg id="ckl"></svg>
+  <figcaption>The all-Q2_0 cold bank is both smaller and closer than the IQ1_S mix: 4.27 GB less and lower KL on every shared text. Our own Q2_0 encoder with an importance matrix comes close to the published Q2_0 bytes but stays behind on every shared text (0.349 vs 0.321); it matters for models that have no published Q2_0. The plain IQ2_XS file is 6.7 GB smaller than the Q2_0 split at almost twice its KL. KL only; no agent tasks run on these files yet.</figcaption>
+  <details><summary>Table view</summary><div class="tw"><table id="t-ckl"></table></div></details>
+  <p class="src">Source: runs/2026-10-28-s19-d-pod/ (REPORT.md, result.json, common-3 texts).</p>
+</figure>
+
+<section class="col">
+  <h2>Strata (fork) on i7</h2>
+  <p><a href="https://github.com/Niko1221/Strata">Strata</a> (MIT) is a separate MoE inference engine with its own expert cache and a selection prior that steers the router toward a profile. Our local patch to it (PGO-SGB, not published) loads the same PB3 keep sets and the same graded bias. Same i7, same model pack, MTP spec 4, greedy, one 1,628-token ABAP prompt, 128 tokens, median of 3, arms interleaved. These numbers come from Strata's own runner and do not compare with the llama.cpp numbers above.</p>
+  <p>Gates pass: parity on both GPUs; an all-zero bias table gives the same 128 greedy tokens as no table (the single-card engine is not fully deterministic run to run, so this gate carries a caveat); a −inf bias on the top 3 experts changes routing in all 48 layers.</p>
+</section>
+<figure>
+  <div class="legend"><span><i style="background:var(--hatch)"></i>off</span><span><i style="background:var(--s1)"></i>graded cap −1</span><span><i style="background:var(--bar)"></i>other arms</span></div>
+  <div class="charts one">
+    <div><h3>One card (cache ~100 experts per layer), decode tokens/s (hit rate in brackets)</h3><svg id="st1"></svg></div>
+    <div><h3>Two cards (cache ~223 experts per layer), decode tokens/s (hit rate in brackets)</h3><svg id="st2"></svg></div>
+  </div>
+  <figcaption>On one card the graded bias lifts a PB3-96 keep set by 16.5% over the same set without bias (41.36 vs 35.49), but Strata's own profile with the selection prior is faster still (58.14). On two cards all arms sit between 61.5 and 65; graded cap −1 on PB3-192 is the fastest at 64.94, +5.5% over off. Bigger keep sets on two cards (graded cap −1): PB3-224 58.69, PB3-256 64.78, PB3-320 64.92; the PB3-224 dip follows MTP acceptance (0.607) on that token path, not the hit rate. One prompt, so ±5% can be token-sequence noise. Approximate KL against off, top-20 plus tail and only over the positions before the texts diverge (about token 15–19): graded 0.029, profile prior 0.033. That is not a quality measurement; pass rate under Strata is not measured, nor more than one prompt or the HTTP path.</figcaption>
+  <details><summary>Table view</summary><div class="tw"><table id="t-st"></table></div></details>
+  <p class="src">Sources: runs/2026-10-28-strata-i7-gates/REPORT.md (gates), runs/2026-10-28-strata-i7-serve-pb96/REPORT.md + result.json (all speeds and KL shown).</p>
 </figure>
 
 <section class="col">
@@ -145,7 +186,7 @@ ul{margin:0 0 12px;padding-left:20px}
     <tr><td>L2a-osg693</td><td>solved</td><td class="n">81 min</td><td class="n">352</td></tr>
     <tr class="best"><td>L2b-abapiti87</td><td>solved</td><td class="n">84 min</td><td class="n">1,521</td></tr>
     <tr><td>L3a-minz39</td><td>solved</td><td class="n">120 min</td><td class="n">772</td></tr>
-    <tr><td>L3b-abapiti95</td><td>running</td><td class="n"></td><td class="n"></td></tr>
+    <tr><td>L3b-abapiti95</td><td>paused (run stopped at ~55 min, to be redone)</td><td class="n"></td><td class="n"></td></tr>
     </tbody></table></div>
   <p><b>L2b is the one that separates models.</b> On the same bench, by executor:</p>
   <div class="tw"><table>
@@ -161,9 +202,9 @@ ul{margin:0 0 12px;padding-left:20px}
     <tr><td>GLM-5 (Pi), Kimi K2.5, MiniMax M2.5, Qwen 3.7 Plus</td><td>failed</td></tr>
     <tr><td>Luna medium / high (Codex)</td><td>failed (high solved it only with runnable examples)</td></tr>
     </tbody></table></div>
-  <p>The home model, with every expert kept and the graded bias, solved the task that half of the cloud models and our own K192p cut fail. L3b is the hardest; so far only Opus, GLM-5.3 in Claude Code and K192p have solved it. Its run is in progress.</p>
-  <p><b>8 GB card, own model (i5: IQ2_XS, graded PB3-64 cap −2, 64K context):</b> L1a solved in 45 min. L1b failed after 52 min, but not on the model: Claude Code stopped with "autocompact thrashing". The 64K context refilled to the limit three times right after compaction, while the agent read large files. The 8 GB setup needs a larger context, or the agent needs smaller tool outputs.</p>
-  <p class="src">Source: bench lane bench-s14-gate-smoke, runs/L*/&lt;executor&gt;/result.json (grader rc 0, leak_suspect false); other executors from the same lanes on i5.</p>
+  <p>The home model, with every expert kept and the graded bias, solved the task that half of the cloud models and our own K192p cut fail. L3b is the hardest; so far only Opus, GLM-5.3 in Claude Code and K192p have solved it. Its home run is paused.</p>
+  <p><b>8 GB card, own model (i5: IQ2_XS, graded PB3-64 cap −2, 64K context):</b> L1a solved in 45 min. L1b failed after 52 min, but not on the model: Claude Code stopped with "autocompact thrashing". The 64K context refilled to the limit three times right after compaction, while the agent read large files. The 8 GB setup needs a larger context, or the agent needs smaller tool outputs. L2a failed after 41 min with an empty patch. The remaining tasks on this box are paused.</p>
+  <p class="src">Source: bench lane bench-s14-gate-smoke, runs/L*/&lt;executor&gt;/result.json (grader rc 0, leak_suspect false); other executors from the same lanes on i5; 8 GB L2a: runs/L2a-osg693/custom-i5-iq2xs-soft64c2-claude-20261028-102713/result.json, park log runs/2026-10-28-i5-pr6-soft/park.log; i7 L3b stop: session state log, 2026-10-28 11:00Z.</p>
 </section>
 
 <section class="col">
@@ -253,6 +294,27 @@ const fillI7=k=>k==='graded cap −1'?'var(--s1)':(k==='flat −0.75'?'var(--hat
 hbar('i7dec',I7.map(r=>({k:r[0],v:r[1],fill:fillI7(r[0]),hatch:r[0]==='flat −0.75',acc:r[2],note:`${r[0]}: ${fmt(r[1],2)} t/s, MTP acceptance ${r[2]}%, mean penalty ${r[4]}`})),{label:'i7 decode by bias arm',lw:120,lo:30,hi:54,ticks:[30,40,50],vfmt:r=>`${fmt(r.v,2)} (${r.acc}%)`});
 hbar('i7pp',I7.map(r=>({k:r[0],v:r[3],fill:fillI7(r[0]),hatch:r[0]==='flat −0.75'})),{label:'i7 prefill by bias arm',lw:120,lo:0,hi:210,ticks:[0,100,200],d:0});
 table('t-i7',['Bias','Decode t/s','MTP acc %','Prefill t/s','Mean penalty'],I7.map(r=>[r[0],fmt(r[1],2),r[2],fmt(r[3],0),r[4]]),'graded cap −1');
+
+/* bias price: KL vs the same model without bias, 7 texts; [arm, KL, same-top %] */
+const BKL=[['flat −0.5, PB3-192',0.4554,84.39],['graded cap −1, PB3-192',0.5051,83.90],['graded cap −2, PB3-192',0.5438,83.13],['flat −0.75, PB3-192',0.5703,82.65],['graded cap −1, PB3-64',0.6205,81.52],['flat −1, PB3-192',0.6503,81.37],['hard mask, PB3-192',0.9044,77.08]];
+const fillB=k=>k.startsWith('graded cap −1, PB3-192')?'var(--s1)':k.startsWith('hard')?'var(--s2)':k.startsWith('flat −0.75')?'var(--hatch)':'var(--bar)';
+hbar('bkl',BKL.map(r=>({k:r[0],v:r[1],fill:fillB(r[0]),hatch:r[0].startsWith('flat −0.75'),note:`${r[0]}: mean KL ${fmt(r[1],3)}, same top token ${fmt(r[2],1)}%`})),{label:'mean KL divergence caused by each router bias, lower is better',w:640,lw:190,lo:0,hi:1,ticks:[0,0.25,0.5,0.75,1],d:3});
+table('t-bkl',['Bias','Mean KL','Same top %'],BKL.map(r=>[r[0],fmt(r[1],3),fmt(r[2],1)]),'graded cap −1, PB3-192');
+
+/* cold-bank formats: KL vs IQ3_S 512, common 3 texts; [variant, KL, expert GB, same-top %] */
+const CKL=[['cold Q2_0, published bytes',0.3211,42.13,88.78],['cold Q2_0, own encoder + imatrix',0.3491,42.13,88.11],['cold IQ1_S gate/up + Q2_0 down',0.3842,46.41,87.34],['whole model IQ2_XS',0.6175,35.45,82.82]];
+hbar('ckl',CKL.map((r,i)=>({k:r[0],v:r[1],gb:r[2],fill:i===0?'var(--s1)':(i===3?'var(--hatch)':'var(--bar)'),hatch:i===3,note:`${r[0]}: KL ${fmt(r[1],3)}, ${fmt(r[2],2)} GB experts, same top token ${fmt(r[3],1)}%`})),{label:'KL divergence against IQ3_S 512 by cold-expert format',w:640,lw:230,lo:0,hi:0.8,ticks:[0,0.2,0.4,0.6,0.8],vfmt:r=>`${fmt(r.v,3)} · ${fmt(r.gb,2)} GB`});
+table('t-ckl',['Variant','Mean KL','Expert GB','Same top %'],CKL.map(r=>[r[0],fmt(r[1],3),fmt(r[2],2),fmt(r[3],1)]),'cold Q2_0, published bytes');
+
+/* Strata on i7: [arm, decode t/s median of 3, hit rate or null] */
+const ST1=[['off',37.78,null],['Strata profile + prior 1.5',58.14,0.948],['PB3-96, no bias',35.49,0.554],['PB3-96 + prior 1.5',49.04,0.864],['PB3-96 graded cap −1',41.36,0.69]];
+const ST2=[['off',61.54,0.9475],['Strata profile + prior 1.5',63.61,0.9974],['PB3-192 + prior 1.5',63.23,null],['PB3-192, no bias',61.66,0.8706],['PB3-192 graded cap −1',64.94,0.9527]];
+const fillS=k=>k==='off'?'var(--hatch)':(k.includes('graded')?'var(--s1)':'var(--bar)');
+const stRows=A=>A.map(r=>({k:r[0],v:r[1],h:r[2],fill:fillS(r[0]),hatch:r[0]==='off',note:`${r[0]}: ${fmt(r[1],2)} t/s`+(r[2]==null?'':`, hit rate ${fmt(r[2]*100,1)}%`)}));
+const stFmt=r=>fmt(r.v,2)+(r.h==null?'':` (${fmt(r.h*100,0)}%)`);
+hbar('st1',stRows(ST1),{label:'Strata decode on one card by arm',w:640,lw:210,lo:0,hi:75,ticks:[0,20,40,60],vfmt:stFmt});
+hbar('st2',stRows(ST2),{label:'Strata decode on two cards by arm',w:640,lw:210,lo:0,hi:75,ticks:[0,20,40,60],vfmt:stFmt});
+table('t-st',['Arm','Cards','Decode t/s','Hit %'],[...ST1.map(r=>[r[0],1,fmt(r[1],2),r[2]==null?'—':fmt(r[2]*100,1)]),...ST2.map(r=>[r[0],2,fmt(r[1],2),r[2]==null?'—':fmt(r[2]*100,1)])],'');
 
 /* tasks: seconds */
 const T=[['osg-l0-line-018',303],['zvdb-l0-line-003',243],['zork-abap-l0-block-002',312],['pia-l0-block-001',481],['zvdb-l0-body-001',530],['zmjs-l1-method-003',571],['abapgit-l0-line-018',723],['open-abap-apc-l1-method-002',725],['open-abap-core-l1-method-013',1486],['open-abap-core-l0-body-018',3501,1],['abapgit-l0-block-015',3838,1]];
