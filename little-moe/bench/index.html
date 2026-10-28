@@ -104,9 +104,9 @@ ul{margin:0 0 12px;padding-left:20px}
   <p>Full IQ3_S 512 on i7, flat bias −0.75, MTP, Claude Code harness at xhigh effort, time limits ×5, graded by hidden tests. Bar length is wall time. <code>osg-l0-body-003</code> is excluded from SMOKE: no model has solved it.</p>
 </section>
 <figure>
-  <div class="legend"><span><i style="background:var(--s1)"></i>solved</span><span><i style="background:var(--hatch)"></i>solved, time inflated (shared the server with another run)</span></div>
+  <div class="legend"><span><i style="background:var(--s1)"></i>solved, wall time</span></div>
   <svg id="tasks"></svg>
-  <figcaption>11 of 11 solved. Two times are inflated: block-015 and core-body-018 ran while a second agent shared the one-slot server (21:45–22:44), so only their result counts. Earlier runs on the same tasks: line-018 1,494 s and apc-002 1,489 s on the older standard-offload setup; block-015 900 s on PB3-208 in the cloud. Graded-bias runs of the same tasks are under way.</figcaption>
+  <figcaption>11 of 11 solved. Two tasks show no time: block-015 and core-body-018 ran while a second agent shared the one-slot server, so only their result counts. Earlier runs on the same tasks: line-018 1,494 s and apc-002 1,489 s on the older standard-offload setup; block-015 900 s on PB3-208 in the cloud. Graded-bias runs of the same tasks are under way.</figcaption>
   <details><summary>Table view</summary><div class="tw"><table id="t-tasks"></table></div></details>
 </figure>
 
@@ -144,6 +144,7 @@ function hbar(id,rows,o){
   rows.forEach((r,i)=>{const y=6+i*30;
     const l=el('text',{x:X0-8,y:y+15,'text-anchor':'end',class:'lbl'},svg);l.textContent=r.k;
     const g=el('g',{tabindex:0},svg);
+    if(r.skip){const t=el('text',{x:X0+4,y:y+15},g);t.textContent=r.skip;return}
     const w=Math.max(2,x(r.v)-X0);
     el('rect',{x:X0,y:y+2,width:w,height:18,rx:4,fill:r.fill||'var(--bar)'},g);
     if(r.hatch){for(let hx=X0+4;hx<X0+w;hx+=7)el('line',{x1:hx,y1:y+20,x2:Math.min(hx+6,X0+w),y2:y+3,stroke:'var(--paper)','stroke-width':1.5},g)}
@@ -188,8 +189,8 @@ table('t-i7',['Bias','Decode t/s','MTP acc %','Prefill t/s','Mean penalty'],I7.m
 
 /* tasks: seconds */
 const T=[['osg-l0-line-018',303],['zvdb-l0-line-003',243],['zork-abap-l0-block-002',312],['pia-l0-block-001',481],['zvdb-l0-body-001',530],['zmjs-l1-method-003',571],['abapgit-l0-line-018',723],['open-abap-apc-l1-method-002',725],['open-abap-core-l1-method-013',1486],['open-abap-core-l0-body-018',3501,1],['abapgit-l0-block-015',3838,1]];
-hbar('tasks',T.map(r=>({k:r[0],v:r[1]/60,fill:r[2]?'var(--hatch)':'var(--s1)',hatch:!!r[2],note:`${r[0]}: solved in ${fmt(r[1],0)} s`+(r[2]?' (time inflated: shared server)':'')})),{label:'agent task wall time in minutes',w:640,lw:220,lo:0,hi:70,ticks:[0,15,30,45,60],vfmt:r=>`${fmt(r.v,1)} min`});
-table('t-tasks',['Task','Result','Time, s'],T.map(r=>[r[0],'solved',fmt(r[1],0)+(r[2]?' *':'')]),'');
+hbar('tasks',T.map(r=>({k:r[0],v:r[2]?0:r[1]/60,fill:'var(--s1)',skip:r[2]?'solved · time not counted (shared server)':'',note:`${r[0]}: solved in ${fmt(r[1],0)} s`})),{label:'agent task wall time in minutes',w:640,lw:220,lo:0,hi:70,ticks:[0,15,30,45,60],vfmt:r=>`${fmt(r.v,1)} min`});
+table('t-tasks',['Task','Result','Time, s'],T.map(r=>[r[0],'solved',r[2]?'not counted':fmt(r[1],0)]),'');
 })();
 </script>
 </html>
