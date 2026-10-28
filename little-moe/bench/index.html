@@ -56,7 +56,7 @@ ul{margin:0 0 12px;padding-left:20px}
   <p class="src">Follow-up to <a href="https://oois.ee/little-moe/">I only wanted to run a little MoE</a>. Measured results only. Medians of 3 unless stated, one agent run per task.</p>
 </header>
 
-<p class="col live">Live notes. The overnight runs (agent tasks on the graded bias, PR-6 on both boxes) are still going; this page fills in as results land.</p>
+<p class="col live">Live notes. PR-6 L3b on i7 and PR-6 on the 8 GB box are still running; this page fills in as results land.</p>
 
 <section class="stats" aria-label="Headline numbers">
   <div class="stat"><b>11 / 11 ×2</b><span>SMOKE tasks solved at home, with flat −0.75 and with graded cap −1</span></div>
@@ -120,6 +120,38 @@ ul{margin:0 0 12px;padding-left:20px}
   <figcaption>On the 9 tasks with clean times in both arms, total wall time was 5,374 s flat and 4,820 s graded (−10%); median 530 s vs 388 s. Calls to the model, all 11 tasks: 303 flat, 325 graded. The arms trade places task by task: graded is much faster on apc-002 and core-l1-013 and much slower on pia-block-001. One run per task, so single-task differences are mostly the agent taking a different path; the totals are the signal, and still a small sample.</figcaption>
   <details><summary>Table view</summary><div class="tw"><table id="t-pair"></table></div></details>
 </figure>
+
+<section class="col">
+  <h2>Repository tasks (PR-6) on the full model at home</h2>
+  <p>PR-6 tasks are cut from real merged pull requests, from L1 (small) to L3 (large), and are graded by the PR's own hidden tests. Full IQ3_S 512 on i7, graded bias cap −1, MTP, Claude Code harness, time limits ×5.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Task</th><th>Result</th><th class="n">Time</th><th class="n">Patch lines</th></tr></thead>
+    <tbody>
+    <tr><td>L1a-osg678</td><td>solved</td><td class="n">11.5 min</td><td class="n">71</td></tr>
+    <tr><td>L1b-osg680</td><td>solved</td><td class="n">45 min</td><td class="n">706</td></tr>
+    <tr><td>L2a-osg693</td><td>solved</td><td class="n">81 min</td><td class="n">352</td></tr>
+    <tr class="best"><td>L2b-abapiti87</td><td>solved</td><td class="n">84 min</td><td class="n">1,521</td></tr>
+    <tr><td>L3a-minz39</td><td>solved</td><td class="n">120 min</td><td class="n">772</td></tr>
+    <tr><td>L3b-abapiti95</td><td>running</td><td class="n"></td><td class="n"></td></tr>
+    </tbody></table></div>
+  <p><b>L2b is the one that separates models.</b> On the same bench, by executor:</p>
+  <div class="tw"><table>
+    <thead><tr><th>Executor</th><th>L2b</th></tr></thead>
+    <tbody>
+    <tr><td>Opus (Claude Code)</td><td>solved, 20 min</td></tr>
+    <tr><td>Sol 6.1 (Codex)</td><td>solved, 7 min</td></tr>
+    <tr><td>Qwen3.8 full, cloud GPU (Claude Code)</td><td>solved, 30 min</td></tr>
+    <tr><td>K224 cut on i7</td><td>solved, 99 min</td></tr>
+    <tr class="best"><td>Full IQ3_S at home, graded bias cap −1</td><td>solved, 84 min</td></tr>
+    <tr><td>K192p cut on i7</td><td>failed (looped)</td></tr>
+    <tr><td>K224 + MTP + n-gram</td><td>failed</td></tr>
+    <tr><td>GLM-5 (Pi), Kimi K2.5, MiniMax M2.5, Qwen 3.7 Plus</td><td>failed</td></tr>
+    <tr><td>Luna medium / high (Codex)</td><td>failed (high solved it only with runnable examples)</td></tr>
+    </tbody></table></div>
+  <p>The home model, with every expert kept and the graded bias, solved the task that half of the cloud models and our own K192p cut fail. L3b is the hardest; so far only Opus, GLM-5.3 in Claude Code and K192p have solved it. Its run is in progress.</p>
+  <p><b>8 GB card, own model (i5: IQ2_XS, graded PB3-64 cap −2, 64K context):</b> L1a solved in 45 min. L1b failed after 52 min, but not on the model: Claude Code stopped with "autocompact thrashing". The 64K context refilled to the limit three times right after compaction, while the agent read large files. The 8 GB setup needs a larger context, or the agent needs smaller tool outputs.</p>
+  <p class="src">Source: bench lane bench-s14-gate-smoke, runs/L*/&lt;executor&gt;/result.json (grader rc 0, leak_suspect false); other executors from the same lanes on i5.</p>
+</section>
 
 <section class="col">
   <h2>One task, four runs each</h2>
