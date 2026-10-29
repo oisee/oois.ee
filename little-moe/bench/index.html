@@ -56,7 +56,7 @@ ul{margin:0 0 12px;padding-left:20px}
   <p class="src">Follow-up to <a href="https://oois.ee/little-moe/">I only wanted to run a little MoE</a>. Measured results only. Medians of 3 unless stated, one agent run per task.</p>
 </header>
 
-<p class="col live">Live notes. In progress: a two-bank file for a 16 GB + 8 GB pair, with 144 hot experts per layer in IQ3_S and the cold rest in Q2_0 (71.88 GB); no speed numbers yet. PR-6 L3b on i7 and the remaining PR-6 tasks on the 8 GB box are paused. This page fills in as results land.</p>
+<p class="col live">Live notes. The two-bank file for a 16 GB + 8 GB pair has its first GPU numbers (below); its KL covers 2 of 7 texts so far, and no real 8 GB card has run it yet. PR-6 L3b on i7 and the remaining PR-6 tasks on the 8 GB box are paused. This page fills in as results land.</p>
 
 <section class="stats" aria-label="Headline numbers">
   <div class="stat"><b>11 / 11 ×2</b><span>SMOKE tasks solved at home, with flat −0.75 and with graded cap −1</span></div>
@@ -125,6 +125,21 @@ ul{margin:0 0 12px;padding-left:20px}
 </figure>
 
 <section class="col">
+  <h2>Two-bank file on GPUs: first numbers</h2>
+  <p>The two-bank file keeps 144 hot experts per layer in IQ3_S and the cold rest in Q2_0, 71.88 GB. It runs on i7 in two layouts: 16 + 8 GB, with the second card held to 7.6 GiB (peak 14,030 MiB on the first card and 7,366 MiB on the second), and 2×16 GB with MTP on the second card. MTP does not fit the 16 + 8 layout. The engine carries a fix for a crash on the first request that is not released yet. Speed: <code>/completion</code>, 2,000-token prompt, 128 greedy tokens, three servers × three runs interleaved, median, spread ≤0.4%. This is a different tool and prompt from the speed sections above, so the numbers do not compare with them.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Layout</th><th>Bias</th><th class="n">Decode t/s</th><th class="n">Prefill t/s</th><th class="n">Cache hit</th></tr></thead>
+    <tbody>
+    <tr><td>16 + 8 GB, no MTP</td><td>off</td><td class="n">12.05</td><td class="n">102.95</td><td class="n">64.2%</td></tr>
+    <tr class="best"><td>16 + 8 GB, no MTP</td><td>graded cap −1</td><td class="n">17.87</td><td class="n">139.70</td><td class="n">84.3%</td></tr>
+    <tr><td>2×16 GB, MTP</td><td>off</td><td class="n">14.12</td><td class="n">101.09</td><td class="n">79.5%</td></tr>
+    <tr class="best"><td>2×16 GB, MTP</td><td>graded cap −1</td><td class="n">30.08</td><td class="n">137.32</td><td class="n">93.3%</td></tr>
+    </tbody></table></div>
+  <p>The graded bias gives +48% decode on 16 + 8 and doubles decode with MTP on 2×16, through the cache hit rate. KL against full IQ3_S on 2 of the 7 texts: 0.579 / 0.478 without bias, 0.762 / 0.602 with graded cap −1. Caveat: the same plain IQ3_S file scored against an i7 reference and against an i5 reference differs by KL 0.127, with an identical engine build. So the i7 KL values here do not compare with the cloud-GPU KL values above, only with each other. KL is not pass rate, and no agent tasks run on this file yet.</p>
+  <p class="src">Source: runs/2026-10-28-v05-horse-i7/REPORT.md.</p>
+</section>
+
+<section class="col">
   <h2>Strata (fork) on i7</h2>
   <p><a href="https://github.com/Niko1221/Strata">Strata</a> (MIT) is a separate MoE inference engine with its own expert cache and a selection prior that steers the router toward a profile. Our local patch to it (PGO-SGB, not published) loads the same PB3 keep sets and the same graded bias. Same i7, same model pack, MTP spec 4, greedy, one 1,628-token ABAP prompt, 128 tokens, median of 3, arms interleaved. These numbers come from Strata's own runner and do not compare with the llama.cpp numbers above.</p>
   <p>Gates pass: parity on both GPUs; an all-zero bias table gives the same 128 greedy tokens as no table (the single-card engine is not fully deterministic run to run, so this gate carries a caveat); a −inf bias on the top 3 experts changes routing in all 48 layers.</p>
@@ -138,6 +153,26 @@ ul{margin:0 0 12px;padding-left:20px}
   <figcaption>On one card the graded bias lifts a PB3-96 keep set by 16.5% over the same set without bias (41.36 vs 35.49), but Strata's own profile with the selection prior is faster still (58.14). On two cards all arms sit between 61.5 and 65; graded cap −1 on PB3-192 is the fastest at 64.94, +5.5% over off. Bigger keep sets on two cards (graded cap −1): PB3-224 58.69, PB3-256 64.78, PB3-320 64.92; the PB3-224 dip follows MTP acceptance (0.607) on that token path, not the hit rate. One prompt, so ±5% can be token-sequence noise. Approximate KL against off, top-20 plus tail and only over the positions before the texts diverge (about token 15–19): graded 0.029, profile prior 0.033. That is not a quality measurement; pass rate under Strata is not measured, nor more than one prompt or the HTTP path.</figcaption>
   <details><summary>Table view</summary><div class="tw"><table id="t-st"></table></div></details>
   <p class="src">Sources: runs/2026-10-28-strata-i7-gates/REPORT.md (gates), runs/2026-10-28-strata-i7-serve-pb96/REPORT.md + result.json (all speeds and KL shown).</p>
+</figure>
+
+<section class="col">
+  <h2>Strata: how far each arm moves the output</h2>
+  <p>KL against Strata with no bias, 2 cards, 8 texts (16,884 positions per arm): ABAP code, an agent session, Russian prose, an English story, and the same UI text in Russian, German, Chinese and English. <b>This is forced-window KL: comparable between arms, not the decode distribution.</b> A self-check of the forced read against real decoding fails (same top token on 183 of 192 positions), so these values rank the arms in one scoring path and are not absolute. Floor: off against off is exactly 0. Negative control (top 3 experts banned): 0.239.</p>
+  <p>Arms: <i>prior 1.5</i> is Strata's own profile with its selection prior. <i>Graded, selection only</i> applies graded cap −1 on PB3-192 to which experts are picked. <i>Graded, damped weights</i> also feeds the bias into the expert mixing weights. <i>Residency only</i> keeps PB3-192 resident with no bias.</p>
+</section>
+<figure>
+  <div class="legend"><span><i style="background:var(--hatch)"></i>residency only (control)</span><span><i style="background:var(--s1)"></i>graded, selection only (kept)</span><span><i style="background:var(--bar)"></i>other arms</span></div>
+  <svg id="skl"></svg>
+  <figcaption>The selection prior moves the output most (0.546, 3.1× the selection-only graded bias), and non-English UI text takes the biggest hit under it. The damped-weights variant is worse than selection only on every text (0.248 vs 0.176). Speed gives no reason to prefer it: damped against selection only is −7.3% (2 cards, PB3-192), −1.4% (2 cards, PB3-256) and +4.7% (1 card, PB3-96), with no consistent sign, on a single prompt. <b>We keep the selection-only graded bias, not damped weights.</b> Pass rate under Strata is not measured.</figcaption>
+  <div class="tw"><table>
+    <thead><tr><th>Arm</th><th class="n">All 8</th><th class="n">ru-ui</th><th class="n">de-ui</th><th class="n">zh-ui</th><th class="n">en-ui</th><th class="n">abap</th><th class="n">Same top %</th></tr></thead>
+    <tbody>
+    <tr><td>prior 1.5</td><td class="n">0.546</td><td class="n">0.939</td><td class="n">0.579</td><td class="n">0.283</td><td class="n">0.190</td><td class="n">0.879</td><td class="n">71.5</td></tr>
+    <tr><td>graded, damped weights</td><td class="n">0.248</td><td class="n">0.271</td><td class="n">0.278</td><td class="n">0.213</td><td class="n">0.148</td><td class="n">0.461</td><td class="n">79.4</td></tr>
+    <tr class="best"><td>graded, selection only</td><td class="n">0.176</td><td class="n">0.166</td><td class="n">0.172</td><td class="n">0.133</td><td class="n">0.107</td><td class="n">0.404</td><td class="n">82.8</td></tr>
+    <tr><td>residency only</td><td class="n">0.064</td><td class="n">0.026</td><td class="n">0.030</td><td class="n">0.025</td><td class="n">0.033</td><td class="n">0.249</td><td class="n">90.5</td></tr>
+    </tbody></table></div>
+  <p class="src">Source: runs/2026-10-29-strata-kl-i7/REPORT.md + result.json (kl_2card, speed).</p>
 </figure>
 
 <section class="col">
@@ -315,6 +350,10 @@ const stFmt=r=>fmt(r.v,2)+(r.h==null?'':` (${fmt(r.h*100,0)}%)`);
 hbar('st1',stRows(ST1),{label:'Strata decode on one card by arm',w:640,lw:210,lo:0,hi:75,ticks:[0,20,40,60],vfmt:stFmt});
 hbar('st2',stRows(ST2),{label:'Strata decode on two cards by arm',w:640,lw:210,lo:0,hi:75,ticks:[0,20,40,60],vfmt:stFmt});
 table('t-st',['Arm','Cards','Decode t/s','Hit %'],[...ST1.map(r=>[r[0],1,fmt(r[1],2),r[2]==null?'—':fmt(r[2]*100,1)]),...ST2.map(r=>[r[0],2,fmt(r[1],2),r[2]==null?'—':fmt(r[2]*100,1)])],'');
+
+/* Strata forced-window KL vs off, 2 cards, 8 texts: [arm, KL, same-top %] */
+const SKL=[['residency only',0.064,90.5],['graded, selection only',0.176,82.8],['graded, damped weights',0.248,79.4],['prior 1.5',0.546,71.5]];
+hbar('skl',SKL.map(r=>({k:r[0],v:r[1],fill:r[0]==='graded, selection only'?'var(--s1)':(r[0]==='residency only'?'var(--hatch)':'var(--bar)'),hatch:r[0]==='residency only',note:`${r[0]}: forced-window KL ${fmt(r[1],3)}, same top token ${fmt(r[2],1)}%`})),{label:'Strata forced-window KL against no bias by arm',w:640,lw:190,lo:0,hi:0.6,ticks:[0,0.2,0.4,0.6],d:3});
 
 /* tasks: seconds */
 const T=[['osg-l0-line-018',303],['zvdb-l0-line-003',243],['zork-abap-l0-block-002',312],['pia-l0-block-001',481],['zvdb-l0-body-001',530],['zmjs-l1-method-003',571],['abapgit-l0-line-018',723],['open-abap-apc-l1-method-002',725],['open-abap-core-l1-method-013',1486],['open-abap-core-l0-body-018',3501,1],['abapgit-l0-block-015',3838,1]];
