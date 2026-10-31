@@ -6,7 +6,7 @@
 <title>Nudge, don't cut · oisee</title>
 <meta name="description" content="PGO-SGB, a profile-guided soft router bias: big MoE models on two 16 GB gaming GPUs keep all their experts, and the router is nudged towards the ones already in VRAM. Qwen3.8-Flash-Next on Strata and GLM-5.3-Flash on Project Maya, measured on agentic ABAP tasks.">
 <meta property="og:title" content="Nudge, don't cut: a profile-guided router bias for big MoE on gaming GPUs">
-<meta property="og:description" content="Keep every expert, nudge the router towards the ones in VRAM. GLM-5.3-Flash on two RTX 4060 Ti: 11.3 → 22.2 tokens/s; 11 of 11 smoke tasks with the bias alone.">
+<meta property="og:description" content="GLM-5.3-Flash on two RTX 4060 Ti: 5.78 → 29.7 tokens/s (llama.cpp → Maya + its affinity knob + our two-line patch).">
 <meta property="og:image" content="https://oois.ee/pgo-sgb/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -116,9 +116,18 @@ footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-si
 <li><b>The idea:</b> keep every expert of a big Mixture-of-Experts model, and give the router one small negative number per layer and expert, taken from a profile of real agent sessions. Experts that sit in VRAM get picked a bit more often; cold experts stay reachable. I call it <b>PGO-SGB</b>: profile-guided soft-gradient bias. The penalty is graded: max(cap, ln(b / b<sub>edge</sub>)).</li>
 <li><b>Why not just cut:</b> on Qwen3.8-Flash-Next with the same hot set, a hard mask gave KL 0.904 against the full model; the graded bias gave 0.505 (llama.cpp, 7 held-out texts).</li>
 <li><b>Qwen3.8-Flash-Next on Strata, two RTX 4060 Ti:</b> at the default cap −0.5 the forced-window KL is 0.098, the cache hit rate goes from 83% to 90%, and decode stays where it was (57–65 tokens/s across caps). All 23 agent runs on Strata (6 distinct tasks, caps −1 and −0.5) solved their tasks.</li>
-<li><b>GLM-5.3-Flash on Project Maya, same box:</b> here the bias does the heavy lifting. 11.3 → 18.9 tokens/s with cap −0.25, 11 of 11 smoke tasks solved. A two-line engine patch (deferring CPU experts on both GPUs; lossy, KL 0.131 against a 0.045 run-to-run floor) and Maya's speculation cancel bring it to <b>22.2 tokens/s</b>. llama.cpp on the same weights did 5.78.</li>
-<li><b>What did not work:</b> expert parallelism over my 2.5 GbE LAN (modelled ≤1.15×), a helper GPU for experts (−43%), skipping missed experts (no gain), and a two-bank "horse" tier that failed its own KL rule.</li>
+<li><b>GLM-5.3-Flash on Project Maya, same box:</b> 5.78 tokens/s in llama.cpp → 11.3 in Maya as shipped → <b>29.7 tokens/s</b> with Maya's own cache affinity plus our two-line <code>DEFER_CPU=2</code> patch (KL 0.117 against the unbiased engine, floor 0.014; the patch alone adds +19.8% on top of the affinity). Our bias was our first step (11.3 → 18.9 with cap −0.25, 11 of 11 smoke tasks) and showed us the way. Then Maya's native affinity knob did the same job better: 22.15 tokens/s at KL 0.044, where our table gives 18.65 at KL 0.072.</li>
+<li><b>The lesson, on both engines:</b> for speed, nudging towards the <em>live</em> cache beats nudging towards a static profile. The profile buys a fixed, predictable selection (and, on Maya, faster prompt processing). We enjoyed finding that out. =)</li>
+<li><b>What did not work:</b> expert parallelism over my 2.5 GbE LAN (modelled ≤1.15×), a helper GPU for experts (−43%), skipping missed experts (no gain), a two-bank "horse" tier that failed its own KL rule, and our static table as a decode accelerator next to Maya's affinity.</li>
 <li><b>Not proven:</b> that the biased models keep the full model's pass rate on fresh, held-out tasks. Every task run here is N = 1 or 2, and the smoke tasks are an engineering check. The paired study is still owed.</li>
+</ul></div>
+
+<div class="tldr" id="got"><h2>What we got out of it</h2><ul>
+<li><b>GLM-5.3-Flash (about 320B) at home on two RTX 4060 Ti:</b> 5.78 → 29.7 tokens/s (KL 0.117, floor 0.014), 11 of 11 smoke tasks at cap −0.25 (on the earlier bias setup), and production code on par with Qwen's by the automatic metrics (its tests are thinner).</li>
+<li><b>A patch that holds up upstream:</b> <code>DEFER_CPU=2</code>, deferring CPU experts on both GPUs. +7.7% on the plain pack (13.0 → 14.0 tokens/s, KL 0.038 against the unpatched engine; the plain-pack run-to-run floor is 0.014, so it is lossy, if mildly); +14.5% together with our bias; and <b>+19.8% on top of Maya's own affinity</b> (24.8 → 29.7 tokens/s, KL 0.099 → 0.117). Offered as <a href="https://github.com/mw00/project-maya/pull/722">Project Maya PR #722</a>.</li>
+<li><b>The full 512-expert Qwen on Strata:</b> 23 of 23 agent runs solved, and about 44% less wall time than my llama.cpp setup on the same four smoke tasks.</li>
+<li><b>Method and tools we will reuse:</b> KL measured inside the engine, interleaved runs with rules written down before the run, blind judging of the code, and an ABAP bench with hidden tests.</li>
+<li><b>An honest map of what does not work</b> (LAN expert parallelism ≤1.15×, a helper GPU, the "horse" two-bank tier), and one clear conclusion: nudge towards the live cache, not towards a static profile.</li>
 </ul></div>
 
 <p>Last time I cut experts out of a 512-expert model to make it fit on two gaming GPUs. It fit. It ran fast. It solved tasks. Then it started thinking in English and looping on its own tests. =)</p>
@@ -257,9 +266,34 @@ footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-si
 <li>Four smoke tasks, two runs each, on the combination: 8 of 8 resolved, and median calls stayed within 1.5× of cap −0.25 alone.</li>
 </ul>
 <p>The patch is offered upstream as <a href="https://github.com/mw00/project-maya/pull/722">Project Maya PR #722</a> (open, not merged), with a speed report in <a href="https://github.com/mw00/project-maya/issues/723">issue #723</a>. It is opt-in and changes nothing with the variable unset.</p>
+<h3>Then Maya's own knob beat ours</h3>
+<p>It turns out Maya already has its own knob for this: <code>STRATA_GLM_ROUTE_AFFINITY</code>, from Maya's PR #252. It adds a small λ to the selection score of every expert that is in VRAM <em>right now</em>. It follows the live cache, and it acts in decode only. That is the same idea as the cache-conditional routing paper, minus the profile. So of course I put the two side by side, on the plain unsloth pack, Maya v1.1.42, one session:</p>
 </section>
 
-<div class="chart" id="ch-path"><h3>GLM-5.3-Flash on two RTX 4060 Ti: from 5.78 to 22.2 tokens/s</h3><p class="sub">Decode tokens/s, each bar adds one step. Medians; each bar comes from its own run (see tooltips), not one session: same-session gains are +63% (bias), +14.5% (patch), +4% (cancel).</p><div class="plot"></div></div>
+<div class="chart" id="ch-aff"><h3>At equal KL, the live-cache nudge decodes faster</h3><p class="sub">GLM-5.3-Flash on Maya v1.1.42, plain unsloth pack, i7. Decode tokens/s (Maya's <code>--bench</code>, mean of 2 runs) against teacher-forced KL to the unbiased engine (run-to-run floor 0.014). Up and to the left is better.</p><div class="legend"><span><span class="sw" style="background:var(--c1)"></span>Maya's native affinity λ</span><span><span class="sw" style="background:var(--c2)"></span>our PGO-SGB table, cap</span></div><div class="plot"></div></div>
+
+<section>
+<div class="table-wrap"><table>
+<thead><tr><th>Arm (Maya v1.1.42, plain pack)</th><th class="n">decode t/s</th><th class="n">KL</th><th class="n">hit</th><th class="n">prefill 2K t/s</th></tr></thead>
+<tbody>
+<tr><td>nothing</td><td class="n">13.05</td><td class="n">0.014</td><td class="n">60%</td><td class="n">160</td></tr>
+<tr><td>affinity λ 0.05</td><td class="n">17.95</td><td class="n">0.030</td><td class="n">77%</td><td class="n">167</td></tr>
+<tr><td>affinity λ 0.125</td><td class="n">22.15</td><td class="n">0.044</td><td class="n">84%</td><td class="n">167</td></tr>
+<tr><td>affinity λ 0.25</td><td class="n">24.65</td><td class="n">0.099</td><td class="n">89%</td><td class="n">168</td></tr>
+<tr><td>our profile + affinity λ 0.125</td><td class="n">22.25</td><td class="n">0.043</td><td class="n">84%</td><td class="n">167</td></tr>
+<tr><td>our profile + affinity λ 0.25</td><td class="n">24.45</td><td class="n">0.092</td><td class="n">88%</td><td class="n">168</td></tr>
+<tr><td>PGO-SGB cap −0.125</td><td class="n">18.65</td><td class="n">0.072</td><td class="n">79%</td><td class="n">207</td></tr>
+<tr><td>PGO-SGB cap −0.25</td><td class="n">21.2</td><td class="n">0.126</td><td class="n">83%</td><td class="n">254</td></tr>
+<tr><td>PGO-SGB cap −0.5</td><td class="n">22.6</td><td class="n">0.238</td><td class="n">87%</td><td class="n">321</td></tr>
+</tbody></table></div>
+<p>At the same KL as our cap −0.125 (0.072), the affinity curve sits at about 23.4 tokens/s (interpolated between its measured points), against our 18.65. That is about 25% more decode for the same drift. Our profile on top of affinity adds nothing (22.25 vs 22.15). The rule I wrote down before the run said "propose the table for decode only if it is at least 10% faster at equal KL". It was not, so I am not proposing it.</p>
+<p>The table keeps one honest plus: it also acts in the prompt path, so prefill is 24–94% faster at 2,048 tokens and 11–44% faster at 8,192. Affinity does not touch prefill at all.</p>
+<p>Strata told the same story with Qwen: on one GPU (Strata's own speed harness, median of chat medians), its built-in residency prior at 0.5 decodes 26% faster than no bias, while cap −0.5 gives 2%, at about the same KL. Two engines, one conclusion: <b>for speed, push towards the live cache, not towards a static profile.</b> The profile gives a fixed, predictable selection that does not drift with the cache, which is worth something, but it is not the fast lane.</p>
+<p>Did the bias work go to waste? Not at all. It got GLM from 11.3 to 18.9 first, it is how I learned where the time goes, and it led straight to the <code>DEFER_CPU</code> patch, which is the part Maya can actually use. Finding out that someone else's knob is better is a perfectly good result. It also saves me maintaining one. =)</p>
+<p>And the patch stacks nicely on top of the native knob. Same session, plain pack: affinity λ 0.25 alone 24.8 tokens/s, with <code>DEFER_CPU=2</code> <b>29.7</b> (+19.8%), 2.28× the 13.0 we started this session with. KL goes from 0.099 (measured in the comparison run) to 0.117 against a run-to-run floor of 0.014, so it is lossy, and I say so. Our pre-registered rule (at least +5% and at most +0.03 KL) passed at λ 0.25; at λ 0.125 the speedup was similar (22.3 → 26.35, +18%) but KL grew by 0.039, so that one did not count. The profiler shows why: the CPU-lane wait fell from about 11 ms to 3.6 ms per token on each card, and the two GPUs are now almost balanced (40.7 vs 42.1 ms per token). Speculation cancel on top gives 29.9, the same within noise.</p>
+</section>
+
+<div class="chart" id="ch-path"><h3>GLM-5.3-Flash on two RTX 4060 Ti: from 5.78 to 29.7 tokens/s</h3><p class="sub">Decode tokens/s. The first five bars are the path we took on Maya v1.1.38 (our profile pack, 1,548-token prompt, medians); the last two are Maya v1.1.42 on the plain pack with its native affinity (<code>--bench</code>). Different sessions and protocols, see tooltips. Same-session gains: our bias +63% (11.6 → 18.9), the patch +14.5%, cancel +4%; native affinity λ 0.25 +91% (13.0 → 24.8), and the patch on top of it +19.8% (24.8 → 29.7).</p><div class="plot"></div></div>
 
 <section id="negative"><h2>What didn't work</h2>
 <p>Some of my favourite ideas this week died on contact with a stopwatch. Here they are, so nobody has to try them again on the same hardware.</p>
@@ -269,6 +303,7 @@ footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-si
 <li><b>Skipping missed experts.</b> It cut the CPU lane from 33.1 to 27.5 ms per token and did not speed up decode, because the second GPU, not the CPU lane, sets the pace. That is how I found the <code>DEFER_CPU</code> lever above.</li>
 <li><b>Two parallel streams:</b> 1.15× total throughput, each stream much slower. Not worth it for one agent.</li>
 <li><b>The "horse": a two-bank tier for Qwen in Strata</b>, with a 2-bit Q2_0 copy of every expert for the CPU's misses. Its gate was KL ≤ 0.02 against the same engine without it. It measured 0.156, and its +19% decode was invalid anyway (the Q2_0 bank was 9–19% in page cache, and the two arms decoded different token streams). Dropped by its own rule.</li>
+<li><b>Our static table as a decode accelerator.</b> On Maya, the native live-cache affinity reaches the same KL with about 25% more decode, and our profile adds nothing on top of it. On Strata the built-in prior does the same at equal KL (+26% against +2%). The table stays useful for predictability and prefill, not for decode speed.</li>
 </ul>
 </section>
 
@@ -276,16 +311,17 @@ footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-si
 <ul>
 <li><b>Same pass rate on fresh tasks.</b> Still the main debt. Smoke tasks were partly in the profile corpus; they are an engineering check, not a generalisation test. I need held-out tasks, the same harness and budget for parent and candidate, and a loss bar decided in advance.</li>
 <li><b>N.</b> Almost every task run here is N = 1 or 2. Wall time varies up to 4× between runs of the same task.</li>
-<li><b>KL on GLM.</b> Maya's GLM path exposes no log-probabilities for the bias sweep; the teacher-forced scorer came later and was used for the patch only.</li>
+<li><b>KL on GLM.</b> Maya's GLM path exposes no log-probabilities for the bias sweep; the teacher-forced scorer came later and was used for the patch and the affinity comparison.</li>
 <li><b>Effort.</b> GLM ran at effort medium, Qwen at xhigh. The code comparison carries that confound.</li>
-<li><b>Next:</b> the paired held-out study; a cap chosen per machine (an 8 GB card wants a smaller hot set); and phase 2, the full 744B GLM-5.3 with the same pipeline.</li>
+<li><b>29.7 on agent tasks.</b> The affinity numbers are <code>--bench</code> speed and teacher-forced KL; I have not yet run the smoke tasks on affinity + <code>DEFER_CPU=2</code>, so the 11 of 11 belongs to the earlier bias setup.</li>
+<li><b>Next:</b> the paired held-out study; the best live-cache setting per engine and per machine; whether a profile is still useful as a <em>seed</em> for the live cache, or for prefill; and phase 2, the full 744B GLM-5.3 with the same pipeline.</li>
 </ul>
-<p>The nice part: the pipeline did carry over. Profile from agent sessions, one table, one dial, the same bench. A new engine and a new router type cost a sweep and a few days, not a rewrite. Nudge, don't cut. =)</p>
+<p>The nice part: the pipeline did carry over. Profile from agent sessions, one table, one dial, the same bench. A new engine and a new router type cost a sweep and a few days, not a rewrite. And the bench was honest enough to tell me when someone else's knob was better. Nudge, don't cut, and nudge towards the live cache. =)</p>
 <p>Thanks to Strata (Niko1221), Project Maya (mw00, co-maintained by needmorevram), unsloth for the GLM GGUFs, ISTA-DASLab for the Qwen IQ3_S, Skliar et&nbsp;al. for the cache-conditional routing paper, and the ABAP tooling community behind the bench.</p>
 <p class="comments-link"><a href="https://www.linkedin.com/in/oisee/">💬 Comments and questions: find me on LinkedIn →</a></p>
 </section>
 
-<aside class="data-note" id="data"><b>Data.</b> Every number on this page comes from a run report in my cnm work repository (private for now). Run directories: Qwen on Strata: <code>2026-10-29-strata-cap-sweep</code>, <code>2026-10-29-strata-kl-i7</code>, <code>2026-10-29-cap-replay</code>, <code>2026-10-29-qwen-c05-check</code>, <code>2026-10-29-c05-vs-c1-ab</code>, <code>2026-10-29-strata-smoke11-pr6</code>, <code>2026-10-29-i7-queue-agent-e0</code>; hard vs graded KL in llama.cpp: <code>2026-10-28-s19-d-pod</code>. GLM on Maya: <code>2026-10-29-maya-glm-step0</code>, <code>2026-10-29-maya-glm-step0b</code>, <code>2026-10-30-maya-glm-bias-sweep</code>, <code>2026-10-30-maya-glm-smoke12-c025</code>, <code>2026-10-30-glm-vs-qwen-code-metrics</code>, <code>2026-10-31-maya-glm-defer2-spec</code>, <code>2026-10-31-maya-glm-cancel-combo</code>. Negative results: <code>2026-10-30-net-ep-feasibility</code>, <code>2026-10-30-maya-glm-arms</code>, <code>2026-10-29-stratagasus-bmin</code>. Speeds are engine timings, one run at a time on an idle i7.</aside>
+<aside class="data-note" id="data"><b>Data.</b> Every number on this page comes from a run report in my cnm work repository (private for now). Run directories: Qwen on Strata: <code>2026-10-29-strata-cap-sweep</code>, <code>2026-10-29-strata-kl-i7</code>, <code>2026-10-29-cap-replay</code>, <code>2026-10-29-qwen-c05-check</code>, <code>2026-10-29-c05-vs-c1-ab</code>, <code>2026-10-29-strata-smoke11-pr6</code>, <code>2026-10-29-i7-queue-agent-e0</code>; hard vs graded KL in llama.cpp: <code>2026-10-28-s19-d-pod</code>. GLM on Maya: <code>2026-10-29-maya-glm-step0</code>, <code>2026-10-29-maya-glm-step0b</code>, <code>2026-10-30-maya-glm-bias-sweep</code>, <code>2026-10-30-maya-glm-smoke12-c025</code>, <code>2026-10-30-glm-vs-qwen-code-metrics</code>, <code>2026-10-31-maya-glm-defer2-spec</code>, <code>2026-10-31-maya-glm-cancel-combo</code>, <code>2026-10-31-maya-upstream</code>, <code>2026-10-31-maya-native-vs-bias</code>, <code>2026-10-31-maya-affinity-defer2</code>; Strata prior at equal KL: <code>2026-10-31-strata-upstream</code>. Negative results: <code>2026-10-30-net-ep-feasibility</code>, <code>2026-10-30-maya-glm-arms</code>, <code>2026-10-29-stratagasus-bmin</code>. Speeds are engine timings, one run at a time on an idle i7.</aside>
 <footer>oisee · <a href="../">oois.ee</a> · The 3D scene uses three.js 0.160.0 from jsDelivr; everything else is inline HTML, SVG and JavaScript.</footer>
 </main>
 <div id="tip" role="tooltip"></div>
@@ -339,7 +375,7 @@ function vbars(host,o){var plot=host.querySelector('.plot');
 function hbars(host,o){var plot=host.querySelector('.plot');
   function draw(){var W=Math.max(260,plot.clientWidth),narrow=W<520,rowH=narrow?52:38,T=6,H=T+o.rows.length*rowH+20;plot.textContent='';
     var L=narrow?8:(o.left||200),R=56;var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':o.label},plot);
-    var x=function(v){return L+v/o.max*(W-L-R);};
+    var x=function(v){return L+(isNaN(v)?0:v)/o.max*(W-L-R);};
     niceTicks(o.max,narrow?3:5).forEach(function(t){el('line',{x1:x(t),x2:x(t),y1:T,y2:H-20,style:'stroke:var(--grid)'},svg);txt(svg,x(t),H-5,fmt(t,0),{'text-anchor':'middle','font-size':11});});
     o.rows.forEach(function(r,i){var y0=T+i*rowH,by=narrow?y0+22:y0+8,bh=narrow?18:22;
       if(narrow)txt(svg,L,y0+16,r[0],{'font-size':12,style:'fill:var(--fg)'});else txt(svg,L-8,by+bh/2+4,r[0],{'text-anchor':'end','font-size':13,style:'fill:var(--fg)'});
@@ -365,6 +401,23 @@ function lines(host,o){var plot=host.querySelector('.plot');
     for(var i=0;i<n;i++){var cw=(W-L-R-24)/(n-1);hit(svg,{x:x(i)-cw/2,y:T,width:cw,height:H-T-B},o.tip(i));}}
   draw();new ResizeObserver(function(){draw();}).observe(plot);table(host,o.thead,o.trows);}
 
+/* x-y scatter with lines, up to 2 series, one y axis */
+function xy(host,o){var plot=host.querySelector('.plot');
+  function draw(){var W=Math.max(260,plot.clientWidth),H=280,L=44,R=W<520?16:24,T=14,B=44;plot.textContent='';
+    var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':o.label},plot);
+    var x=function(v){return L+v/o.xmax*(W-L-R);},y=function(v){return T+(1-v/o.ymax)*(H-T-B);};
+    niceTicks(o.ymax,4).forEach(function(t){el('line',{x1:L,x2:W-R,y1:y(t),y2:y(t),style:'stroke:var(--grid)'},svg);txt(svg,L-6,y(t)+4,fmt(t,0),{'text-anchor':'end','font-size':11});});
+    niceTicks(o.xmax,W<520?3:5).forEach(function(t){txt(svg,x(t),H-B+17,fmt(t,2),{'text-anchor':'middle','font-size':11});});
+    el('line',{x1:L,x2:W-R,y1:y(0),y2:y(0),style:'stroke:var(--muted)'},svg);
+    txt(svg,(L+W-R)/2,H-4,o.xlabel,{'text-anchor':'middle','font-size':11});
+    o.series.forEach(function(s,k){var d='';s.p.forEach(function(q,i){d+=(i?'L':'M')+x(q[0])+','+y(q[1]);});
+      el('path',{d:d,fill:'none',style:'stroke:var(--'+s.c+');stroke-width:2'+(k?';stroke-dasharray:6 4':'')},svg);
+      s.p.forEach(function(q){var cx=x(q[0]),cy=y(q[1]);
+        if(k)el('rect',{x:cx-4.5,y:cy-4.5,width:9,height:9,rx:1.5,style:'fill:var(--'+s.c+');stroke:var(--paper);stroke-width:2'},svg);else el('circle',{cx:cx,cy:cy,r:5,style:'fill:var(--'+s.c+');stroke:var(--paper);stroke-width:2'},svg);
+        if(q[3]&&!(W<520&&q[0]<0.035))txt(svg,cx+(k?0:-8),cy+(k?18:-9),q[3],{'text-anchor':k?'middle':'end','font-size':11,style:'fill:var(--fg)'});
+        hit(svg,{x:cx-12,y:cy-12,width:24,height:24},'<b>'+q[2]+'</b><br>decode <b>'+fmt(q[1],2)+'</b> tok/s<br>KL '+fmt(q[0],3));});});}
+  draw();new ResizeObserver(function(){draw();}).observe(plot);table(host,o.thead,o.trows);}
+
 /* data: see FACTS.md for sources */
 var Q={cats:['off','−0.5','−1','−1.5','−2'],kl:[0,0.098,0.153,0.333,0.507],ru:[0,0.064,0.158,0.664,1.028],top1:[100,87.1,83.7,77.0,72.7],dnll:['0','+0.028','+0.069','+0.191','+0.357'],dec:[58.74,57.44,59.45,64.71,60.06],hit:[83.4,89.7,92.4,92.1,92.0],mtp:[68.8,62.6,64.2,73.5,65.5]};
 lines(document.getElementById('ch-kl'),{label:'KL versus cap, Qwen on Strata',cats:Q.cats,max:1.1,xlabel:'PGO-SGB cap',
@@ -387,12 +440,19 @@ hbars(document.getElementById('ch-break'),{label:'Time per part pass',max:20,dec
   ['PCIe expert fetch',7,'7 ms','<b>PCIe fetch</b>: 7 ms per pass<br>cache misses copied to VRAM'],
   ['MoE on the GPU',6,'6 ms','<b>MoE on the GPU</b>: 6 ms per pass'],
   ['rest: attention, dense, host',15.5,'15–16 ms','<b>Everything else</b>: 15–16 ms per pass<br>attention, shared expert, dense layers, host']]});
-hbars(document.getElementById('ch-path'),{label:'GLM decode path',max:25,dec:1,left:230,thead:['step','decode tok/s','run'],rows:[
+xy(document.getElementById('ch-aff'),{label:'Decode versus KL: native affinity and PGO-SGB',xmax:0.25,ymax:30,xlabel:'KL to the unbiased engine (lower = closer)',
+  series:[{c:'c1',p:[[0.014,13.05,'nothing',''],[0.030,17.95,'affinity λ 0.05','0.05'],[0.044,22.15,'affinity λ 0.125','0.125'],[0.099,24.65,'affinity λ 0.25','λ 0.25']]},
+          {c:'c2',p:[[0.014,13.05,'nothing',''],[0.072,18.65,'PGO-SGB cap −0.125','−0.125'],[0.126,21.2,'PGO-SGB cap −0.25','−0.25'],[0.238,22.6,'PGO-SGB cap −0.5','cap −0.5']]}],
+  thead:['arm','KL','decode tok/s'],trows:[['nothing','0.014','13.05'],['affinity λ 0.05','0.030','17.95'],['affinity λ 0.125','0.044','22.15'],['affinity λ 0.25','0.099','24.65'],['our profile + affinity λ 0.125','0.043','22.25'],['our profile + affinity λ 0.25','0.092','24.45'],['PGO-SGB cap −0.125','0.072','18.65'],['PGO-SGB cap −0.25','0.126','21.2'],['PGO-SGB cap −0.5','0.238','22.6']]});
+var COMBO=parseFloat('29.7');
+hbars(document.getElementById('ch-path'),{label:'GLM decode path',max:isNaN(COMBO)||COMBO<=25?25:Math.ceil(COMBO/5)*5,dec:1,left:250,thead:['step','decode tok/s','run'],rows:[
   ['llama.cpp, same weights',5.78,'5.78','<b>llama.cpp</b>: 5.78 tok/s<br>same GGUF, not a strict A/B<br>run 2026-10-29-maya-glm-step0','2026-10-29-maya-glm-step0'],
   ['Project Maya v1.1.38, as shipped',11.3,'11.3','<b>Maya v1.1.38</b>, shipped profile: 11.3 tok/s<br>runs 10.9 / 11.3 / 11.4, cache hit 57–58%<br>run 2026-10-29-maya-glm-step0','2026-10-29-maya-glm-step0'],
   ['+ PGO-SGB cap −0.25',18.9,'18.9','<b>+ PGO-SGB cap −0.25</b>: 18.9 tok/s<br>runs 18.3 / 19.1 / 18.9 (same-session base 11.6)<br>run 2026-10-30-maya-glm-bias-sweep','2026-10-30-maya-glm-bias-sweep'],
   ['+ DEFER_CPU=2 patch',21.3,'21.3','<b>+ DEFER_CPU=2</b> (patched): 21.3 tok/s<br>median of 6, same-session base 18.6 (+14.5%)<br>run 2026-10-31-maya-glm-cancel-combo','2026-10-31-maya-glm-cancel-combo'],
-  ['+ SPEC_CANCEL',22.2,'22.2','<b>+ SPEC_CANCEL</b>: 22.2 tok/s<br>median of 6, +4.2% vs DEFER alone, ranges overlap<br>run 2026-10-31-maya-glm-cancel-combo','2026-10-31-maya-glm-cancel-combo']]});
+  ['+ SPEC_CANCEL',22.2,'22.2','<b>+ SPEC_CANCEL</b>: 22.2 tok/s<br>median of 6, +4.2% vs DEFER alone, ranges overlap<br>run 2026-10-31-maya-glm-cancel-combo','2026-10-31-maya-glm-cancel-combo'],
+  ['Maya v1.1.42 + native affinity λ 0.25',24.8,'24.8','<b>Maya v1.1.42, native affinity λ 0.25</b>: 24.8 tok/s<br>plain pack, --bench mean of 2, KL 0.099, hit 89%<br>same session as the next bar (24.65 in the earlier comparison run)<br>run 2026-10-31-maya-affinity-defer2','2026-10-31-maya-affinity-defer2'],
+  ['+ DEFER_CPU=2 (on affinity)',COMBO,isNaN(COMBO)?'pending':'29.7','<b>Maya v1.1.42, affinity λ 0.25 + DEFER_CPU=2</b>: 29.7 tok/s<br>runs 29.7 / 29.7, KL 0.117 (floor 0.014), hit 88%<br>+19.8% vs affinity alone<br>run 2026-10-31-maya-affinity-defer2','2026-10-31-maya-affinity-defer2']]});
 })();
 </script>
 
