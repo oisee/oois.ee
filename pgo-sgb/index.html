@@ -182,7 +182,7 @@ footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-si
 </section>
 
 <section id="qwen"><h2>Qwen on Strata: the bias as a quality dial</h2>
-<p><a href="https://github.com/Niko1221/Strata">Strata</a> is a local inference engine with its own VRAM expert tier and multi-token prediction. I added PGO-SGB to it in my fork, <a href="https://github.com/oisee/Strata">oisee/Strata</a> (branch <code>cnm/pgo-sgb</code>, opt-in; an upstream PR is in preparation, not merged). Model: ISTA-DASLab's Qwen3.8-Flash-Next GSQ-RCO IQ3_S, all 512 experts, PB3-192 as the starting residency, context 131,072.</p>
+<p><a href="https://github.com/Niko1221/Strata">Strata</a> is a local inference engine with its own VRAM expert tier and multi-token prediction. I added PGO-SGB to it in my fork, <a href="https://github.com/oisee/Strata">oisee/Strata</a> (branch <code>cnm/pgo-sgb</code>, opt-in; proposed upstream in <a href="https://github.com/Niko1221/Strata/issues/4812">issue #4812</a>, not merged). Model: ISTA-DASLab's Qwen3.8-Flash-Next GSQ-RCO IQ3_S, all 512 experts, PB3-192 as the starting residency, context 131,072.</p>
 <p>First surprise: on two 16 GB cards Strata's cache already hits 83% of expert lookups without any bias. So the bias did not buy speed here. What it buys is control over how far the model drifts from itself.</p>
 </section>
 
@@ -201,7 +201,7 @@ footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-si
 <tr><td>PGO-SGB, selection only</td><td class="n">0.176</td><td class="n">82.8%</td><td class="n">0.166</td></tr>
 <tr><td>Residency profile only, no bias</td><td class="n">0.064</td><td class="n">90.5%</td><td class="n">0.026</td></tr>
 </tbody></table></div>
-<p>Selection-only was closer than damped weights on every text (pooled +41% for damped). And a static graded table beats a flat bonus for "whatever happens to be resident" by a factor of three. These KL numbers come from a forced-window read; a self-check showed that it differs from the decode distribution (same top-1 95.3%), so the arms compare with each other but are not the decode-time KL.</p>
+<p>Selection-only was closer than damped weights on every text (pooled +41% for damped). The prior row above is at its default strength 1.5, a much stronger push, so it is not a fair fight. On current upstream Strata, one GPU, at <em>equal</em> KL the prior wins on speed: prior 0.5 has the same KL as cap −0.5 (0.075 vs 0.086) and decodes +26% faster, against +2% for the table. So PGO-SGB is not a speed feature on Strata; what it offers is a fixed per-expert selection from a workload profile that does not follow the adaptive tier. These KL numbers come from a forced-window read; a self-check showed that it differs from the decode distribution (same top-1 95.3%), so the arms compare with each other but are not the decode-time KL.</p>
 <p>The residency-only row is not zero either. My reading, not a measured cause: Strata's tail skip drops some missed experts, and which experts miss depends on what is resident. Turning tail skip off costs 8.3% decode in the replay.</p>
 <h3>Agent tasks</h3>
 <p>Same bench as last time: real ABAP repository and smoke tasks, hidden tests, the agent only gets <code>osg-abap lint / check / test</code>. On Strata with the bias, every run so far resolved: 10 of 10 at cap −1 (four smoke tasks plus apc-002 twice, and the long repository tasks L1a twice and L2b twice), 5 of 5 at cap −0.5, and 8 of 8 in an interleaved A/B of −0.5 against −1. That is 23 runs on 6 distinct tasks.</p>
