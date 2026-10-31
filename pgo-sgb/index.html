@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nudge, don't cut · oisee</title>
+<meta name="description" content="PGO-SGB, a profile-guided soft router bias: big MoE models on two 16 GB gaming GPUs keep all their experts, and the router is nudged towards the ones already in VRAM. Qwen3.8-Flash-Next on Strata and GLM-5.3-Flash on Project Maya, measured on agentic ABAP tasks.">
+<meta property="og:title" content="Nudge, don't cut: a profile-guided router bias for big MoE on gaming GPUs">
+<meta property="og:description" content="Keep every expert, nudge the router towards the ones in VRAM. GLM-5.3-Flash on two RTX 4060 Ti: 11.3 → 22.2 tokens/s; 11 of 11 smoke tasks with the bias alone.">
+<meta property="og:image" content="https://oois.ee/pgo-sgb/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://oois.ee/pgo-sgb/">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../avatar.png">
+<style>
+:root{color-scheme:light;--bg:#f2f4f0;--paper:#fffefa;--fg:#182a2a;--muted:#596968;--rule:#d1dbd5;--accent:#137d72;--soft:#e0efe8;--gold:#aa650c;--gold-soft:#fff0d6;--bad:#bc353e;--good:#177a4d;--discard:#7c8789;
+--c1:#0b8a78;--c2:#8e57ae;--hot:#d0601c;--cold:#277cbb;--grid:#e3e8e4}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#111c1c;--paper:#192727;--fg:#e9f0e9;--muted:#adbfba;--rule:#3b514c;--accent:#75d6bb;--soft:#25483e;--gold:#ffd17d;--gold-soft:#4b3820;--bad:#ff8891;--good:#7fdbad;--discard:#9aa6a7;
+--c1:#2fa08f;--c2:#a173c9;--hot:#d9692a;--cold:#3f95d8;--grid:#2a3c39}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#111c1c;--paper:#192727;--fg:#e9f0e9;--muted:#adbfba;--rule:#3b514c;--accent:#75d6bb;--soft:#25483e;--gold:#ffd17d;--gold-soft:#4b3820;--bad:#ff8891;--good:#7fdbad;--discard:#9aa6a7;
+--c1:#2fa08f;--c2:#a173c9;--hot:#d9692a;--cold:#3f95d8;--grid:#2a3c39}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:1020px;margin:44px auto 80px}
+header>*,section>*,footer,.data-note{max-width:40rem;margin-left:auto;margin-right:auto}
+section{margin-top:64px}
+p{margin-top:0;margin-bottom:1.2em}
+h1,h2,h3{font-family:Georgia,"Times New Roman",serif;line-height:1.14;letter-spacing:-.025em}
+h1{font-size:clamp(2.2rem,6vw,4rem);margin-block:20px 24px}
+h2{font-size:clamp(1.7rem,4vw,2.3rem);margin-bottom:26px}
+h3{font-size:1.45rem;margin:8px 0 12px}
+section>h3{margin:28px auto 12px}
+a{color:var(--accent);overflow-wrap:anywhere}
+nav{display:flex;justify-content:space-between;align-items:center;gap:12px;max-width:1020px;margin:18px auto;font-size:14px}
+button,select,input{font:inherit;accent-color:var(--accent)}
+button,select{border:1px solid var(--rule);border-radius:7px;background:var(--paper);color:var(--fg);padding:8px 10px;min-height:40px}
+button{cursor:pointer}button:hover{border-color:var(--accent)}
+button[aria-pressed=true]{background:var(--accent);color:var(--paper);border-color:var(--accent)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+label{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.eyebrow{font:12px/1.4 ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.comments-link{margin:14px auto;padding:10px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--soft);font-weight:600;text-align:center}
+.comments-link a{text-decoration:none}
+.tldr{background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:10px;padding:14px 18px;margin:18px auto}
+.tldr h2{margin:0 0 6px;font-size:1.6rem}.tldr ul{margin:0;padding-left:20px}.tldr li{margin:6px 0}
+.animation{max-width:none;margin:32px 0 44px;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:22px;box-shadow:0 8px 30px color-mix(in srgb,var(--fg) 4%,transparent)}
+.animation>*{max-width:none}
+.figure-head h3{margin-top:4px}
+.options,.transport{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0 14px;font-size:14px}
+.transport{border-top:1px solid var(--rule);padding-top:14px;margin-bottom:0}
+.seg{display:inline-flex;gap:4px;flex-wrap:wrap}
+figcaption{font-size:14px;line-height:1.55;color:var(--muted);border-top:1px solid var(--rule);padding-top:14px;margin-top:16px}
+figcaption small{display:block;font-size:12px;margin-top:9px;overflow-wrap:anywhere}
+.stage{position:relative;min-width:0}
+#c3d-canvas{display:block;width:100%;height:400px;border-radius:8px;background:var(--bg);touch-action:none;cursor:grab}
+#c3d-canvas:active{cursor:grabbing}
+.c3d-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.c3d-stats .pane{border:1px solid var(--rule);border-radius:10px;padding:10px 12px;font-size:14px;min-width:0}
+.c3d-stats h4{margin:0 0 6px;font-size:15px}
+.c3d-stats .row{display:flex;justify-content:space-between;gap:10px}
+.c3d-stats b{font-variant-numeric:tabular-nums}
+.ill{font-size:12px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted);margin:4px 0 10px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin-right:5px}
+.sw{display:inline-block;width:14px;height:4px;vertical-align:3px;margin-right:6px;border-radius:2px}
+.meas{font-size:14px;border-left:3px solid var(--accent);background:var(--soft);padding:10px 12px;margin:14px 0 0}
+.overlay{position:absolute;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;text-align:center;padding:10px 14px;background:color-mix(in srgb,var(--paper) 88%,transparent);border-radius:0 0 8px 8px}
+.overlay[hidden]{display:none}
+.overlay p{margin:0;font-size:14px;max-width:36ch}
+#c3d-fallback[hidden]{display:none}
+input[type=range]{width:170px;max-width:100%}
+output{font-variant-numeric:tabular-nums;min-width:3.5em;display:inline-block}
+.chart{margin:28px 0 36px;background:var(--paper);border:1px solid var(--rule);border-radius:12px;padding:18px 18px 14px;max-width:none}
+.chart h3{font-size:1.2rem;margin:0 0 4px}
+.chart .sub{font-size:14px;color:var(--muted);margin:0 0 8px}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart svg text{font-family:system-ui,-apple-system,sans-serif}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.pair>div{min-width:0}
+.chart details{margin-top:8px;font-size:13px}
+summary{cursor:pointer;color:var(--accent)}
+.table-wrap{overflow-x:auto;margin-bottom:1.2em}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.5}
+th,td{padding:7px 9px;text-align:left;vertical-align:top;border-bottom:1px solid var(--rule)}
+th{color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+code{font:.87em ui-monospace,monospace;overflow-wrap:anywhere}
+pre{overflow-x:auto;background:var(--paper);border:1px solid var(--rule);padding:14px;font:13px/1.6 ui-monospace,monospace;border-radius:8px}
+.formula{font:15px/1.6 ui-monospace,monospace;background:var(--paper);border:1px solid var(--rule);border-radius:8px;padding:12px 14px;overflow-x:auto}
+.callout{border-left:3px solid var(--gold);background:var(--gold-soft);padding:10px 14px;border-radius:0 8px 8px 0;font-size:15px}
+#tip{position:fixed;z-index:20;pointer-events:none;background:var(--paper);color:var(--fg);border:1px solid var(--rule);border-radius:8px;padding:7px 10px;font-size:13px;line-height:1.45;box-shadow:0 4px 18px color-mix(in srgb,var(--fg) 14%,transparent);max-width:280px;opacity:0;transition:opacity .08s}
+#tip b{font-variant-numeric:tabular-nums}
+.hit{fill:transparent;cursor:default}
+.hit:focus{outline:none}
+.hit:focus-visible{stroke:var(--accent);stroke-width:2}
+footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-size:13px;color:var(--muted)}
+.data-note{font-size:13px;color:var(--muted);margin-top:40px}
+.data-note code{font-size:12px}
+@media(max-width:640px){table{font-size:13px}th,td{padding:6px}td.n{white-space:nowrap}body{font-size:16px;line-height:1.65}main{margin-top:24px}section{margin-top:44px}.animation{padding:14px}.chart{padding:14px 12px 10px}.pair,.c3d-stats{grid-template-columns:1fr}#c3d-canvas{height:480px}input[type=range]{width:130px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<nav aria-label="Article controls"><a href="../">← oisee</a><label>Theme <select id="theme"><option value="auto">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></nav>
+<main id="article">
+<header>
+<div class="eyebrow">cnm · Alice Vinogradova · October 2026</div>
+<h1>Nudge, don't cut</h1>
+<p><em>A profile-guided router bias for big MoE models on gaming GPUs. Sequel to <a href="../little-moe/">I only wanted to run a little MoE</a>.</em></p>
+<p class="comments-link"><a href="https://www.linkedin.com/in/oisee/">💬 Comments and questions: find me on LinkedIn →</a></p>
+
+<div class="tldr" id="tldr"><h2>TL;DR</h2><ul>
+<li><b>The idea:</b> keep every expert of a big Mixture-of-Experts model, and give the router one small negative number per layer and expert, taken from a profile of real agent sessions. Experts that sit in VRAM get picked a bit more often; cold experts stay reachable. I call it <b>PGO-SGB</b>: profile-guided soft-gradient bias. The penalty is graded: max(cap, ln(b / b<sub>edge</sub>)).</li>
+<li><b>Why not just cut:</b> on Qwen3.8-Flash-Next with the same hot set, a hard mask gave KL 0.904 against the full model; the graded bias gave 0.505 (llama.cpp, 7 held-out texts).</li>
+<li><b>Qwen3.8-Flash-Next on Strata, two RTX 4060 Ti:</b> at the default cap −0.5 the forced-window KL is 0.098, the cache hit rate goes from 83% to 90%, and decode stays where it was (57–65 tokens/s across caps). All 23 agent runs on Strata (6 distinct tasks, caps −1 and −0.5) solved their tasks.</li>
+<li><b>GLM-5.3-Flash on Project Maya, same box:</b> here the bias does the heavy lifting. 11.3 → 18.9 tokens/s with cap −0.25, 11 of 11 smoke tasks solved. A two-line engine patch (deferring CPU experts on both GPUs; lossy, KL 0.131 against a 0.045 run-to-run floor) and Maya's speculation cancel bring it to <b>22.2 tokens/s</b>. llama.cpp on the same weights did 5.78.</li>
+<li><b>What did not work:</b> expert parallelism over my 2.5 GbE LAN (modelled ≤1.15×), a helper GPU for experts (−43%), skipping missed experts (no gain), and a two-bank "horse" tier that failed its own KL rule.</li>
+<li><b>Not proven:</b> that the biased models keep the full model's pass rate on fresh, held-out tasks. Every task run here is N = 1 or 2, and the smoke tasks are an engineering check. The paired study is still owed.</li>
+</ul></div>
+
+<p>Last time I cut experts out of a 512-expert model to make it fit on two gaming GPUs. It fit. It ran fast. It solved tasks. Then it started thinking in English and looping on its own tests. =)</p>
+<p>So this time I kept every expert and changed the question: not "which experts can I delete?", but "how do I make the model <em>prefer</em> the experts that are already on the GPU, without forbidding the others?"</p>
+<p>The answer is small enough to fit in one line of arithmetic. Making it fast and checking that it did not break anything took the rest of the week, on two different engines and two different models. Coding agents did plenty of the implementation, experiment plumbing and checking for me. I picked the questions and got to keep the awkward results. =)</p>
+</header>
+
+<section id="problem"><h2>Experts that don't fit</h2>
+<p>A Mixture-of-Experts model has many small feed-forward blocks per layer, the experts, and a router that picks a few of them for every token. Qwen3.8-Flash-Next has 48 layers × 512 experts and picks 10. GLM-5.3-Flash has 288 experts per layer. Each token touches only a small subset, but every expert has to live somewhere.</p>
+<p>My box is an i7-10700K with 128 GB DDR4 and two RTX 4060 Ti 16 GB on PCIe 3.0 x8. (I'll call it i7, after its host name; the second machine, i5, is a Ryzen box with an RTX 2070.) The Qwen IQ3_S files are about 55 GB of weights plus a 29 GB embedding table; the GLM UD-IQ3_XXS files are about 120 GB. Neither fits into 32 GB of VRAM. So the engines keep the bright experts on the GPUs and the rest in RAM, where the CPU computes them or PCIe fetches them. Every token that wants a cold expert pays for it.</p>
+<p>Profiles of my agent sessions say that a minority of experts carries most of the router's mass, and which minority depends on the work: exploring a repository, editing, running tests. I called the phase-balanced version of that profile PB3 in the <a href="../little-moe/">previous article</a>: explore, edit and verify get equal votes.</p>
+<p>There are two ways to use such a profile:</p>
+<ul>
+<li><b>Hard mask:</b> cold experts can never be picked. Simple, and the model only ever needs the hot set. But every token that really needed a cold expert gets a substitute.</li>
+<li><b>Soft bias:</b> cold experts get a negative number added to their router score. They are picked less often, but a token that really wants one still gets it.</li>
+</ul>
+<p>On Qwen3.8-Flash-Next with the same PB3-192 hot set (192 experts per layer kept), the hard mask gave a mean KL of <b>0.904</b> against the full model; the graded bias with cap −1 gave <b>0.505</b>, and a flat −0.75 gave 0.570. To be honest about it, a flat −0.5 was closer still, at 0.455. At the same cap, a flat −1 gave 0.650. A weaker nudge is closer to the original model. The graded form earns its place differently, which the next picture is about.</p>
+</section>
+
+<section id="canyon"><h2>PGO-SGB in one picture</h2>
+<p>Think of each routing decision as a ball rolling down towards the expert it wants. Below, the floor is shaped by the mask. On the left (on a phone, the top), the hard mask: a flat shelf with steep pits only at the hot experts. On the right (bottom), PGO-SGB: a smooth relief where every expert has a groove, and the groove depth follows the expert's brightness. Both get the same seeded stream of balls.</p>
+</section>
+
+<figure class="animation" id="C3D" aria-label="3D canyon: hard mask versus PGO-SGB">
+<div class="figure-head"><span class="eyebrow">Interactive · 3D</span><h3>Balls in a sharp canyon and in a soft one</h3></div>
+<div class="legend"><span><span class="dot" style="background:var(--hot)"></span>wants a hot expert (in VRAM)</span><span><span class="dot" style="background:var(--cold)"></span>wants a cold expert (in RAM)</span><span><span class="sw" style="background:var(--c1)"></span>hot expert's groove</span><span><span class="sw" style="background:var(--discard)"></span>cold expert's groove</span></div>
+<div class="options">
+<span class="seg" role="group" aria-label="View"><button data-view="both" aria-pressed="true">Both</button><button data-view="hard" aria-pressed="false">Hard mask</button><button data-view="soft" aria-pressed="false">PGO-SGB</button></span>
+<label>PGO-SGB cap <input type="range" id="c3d-cap" min="0" max="100" step="5" value="50" aria-describedby="c3d-caphint"> <output id="c3d-capout">−1.0</output></label>
+</div>
+<div class="stage">
+<canvas id="c3d-canvas" role="img" aria-label="Two terrains side by side. Left: flat shelf with sharp pits at hot experts. Right: smooth grooves whose depth follows expert brightness. Balls roll down into them."></canvas>
+<div class="overlay" id="c3d-overlay" hidden><p id="c3d-overlay-text">Animation is paused because your system asks for reduced motion. This is a static frame.</p><button type="button" id="c3d-overlay-play">Play anyway</button></div>
+<div id="c3d-fallback" hidden><p class="ill">WebGL or three.js is not available here, so this is a static cross-section of the two floors (the far end, where the balls settle) instead of the 3D scene. Teal marks = hot experts.</p><svg id="c3d-fallback-svg" viewBox="0 0 640 260" role="img" aria-label="Cross-section: hard mask pits versus graded grooves"></svg></div>
+</div>
+<div class="c3d-stats" aria-live="polite">
+<div class="pane"><h4>Hard mask</h4><div class="row"><span>landed in cache (fast)</span><b id="s-hard-cache">—</b></div><div class="row"><span>reached its own expert</span><b id="s-hard-own">—</b></div><div class="row"><span>did not reach its own expert</span><b id="s-hard-stuck">—</b></div><div class="ill">balls resolved: <span id="s-hard-n">0</span></div></div>
+<div class="pane"><h4>PGO-SGB</h4><div class="row"><span>landed in cache (fast)</span><b id="s-soft-cache">—</b></div><div class="row"><span>reached its own expert</span><b id="s-soft-own">—</b></div><div class="row"><span>own expert, but cold (slow path)</span><b id="s-soft-slow">—</b></div><div class="ill">balls resolved: <span id="s-soft-n">0</span></div></div>
+</div>
+<p class="ill" style="margin:8px 0 0">These percentages are an illustration of the mechanism, not a measurement. 18 "experts" stand in for 512.</p>
+<div class="transport"><button type="button" id="c3d-play">Play</button><button type="button" id="c3d-reset">Reset</button><span class="ill" id="c3d-caphint">Drag to orbit, pinch or wheel to zoom. Cap 0 = flat floor (no bias); far right = cap −2, the strongest cap in the Qwen sweep. Changing the cap restarts the counters.</span></div>
+<p class="meas"><b>Measured</b> (not illustration), mean KL against the full Qwen3.8-Flash-Next IQ3_S on 7 held-out texts, PB3-192 hot set, llama.cpp: hard mask <b>0.904</b> · flat −0.75 <b>0.570</b> · graded cap −1 <b>0.505</b>. Lower is closer to the full model.</p>
+<figcaption>Each ball is one routing decision. Its colour says whether the expert it wants is hot; its "will" (how hard it steers towards its own expert) stands for the router's own preference. On the shelf, a ball that wants a cold expert finds no pit of its own and slides into a neighbour's: a substitute expert. In the soft relief, a strong wish climbs out of a shallow groove and reaches its own cold expert; a weak one settles in the nearest deep groove. Groove depth is max(cap, ln(b / b<sub>edge</sub>)) relative to the cap, so an expert just outside the hot set is barely touched.<small>Physics is a toy heightfield with steering, seeded so both floors get identical balls. Brightness is a skewed synthetic distribution; the hot set is the top 7 of 18.</small></figcaption>
+</figure>
+
+<section>
+<p>What the picture is meant to show: with a hard edge you must guess the right hot-set size, and every token on the wrong side of it is rerouted. With a graded edge, an expert just outside the hot set is barely penalised, so a wrong guess costs less, and the cap becomes one dial for "how much quality do I trade for cache hits".</p>
+</section>
+
+<section id="method"><h2>The method in five lines</h2>
+<p>For each MoE layer <i>l</i> and expert <i>e</i>, the profile gives a brightness <i>b</i>: its phase-balanced share of router mass over my agent sessions. Experts in the hot set (the ones the cache should hold) get no penalty. Everyone else gets:</p>
+<p class="formula">bias[l][e] = max(cap, ln(b[l][e] / b_edge[l]))<br>pick top-k by  logit[e] + bias[l][e]<br>weights = router's own softmax over the picked k</p>
+<ul>
+<li><b>Graded:</b> <i>b<sub>edge</sub></i> is the brightness of the weakest hot expert, so the penalty starts near 0 at the edge and reaches the cap in the deep tail.</li>
+<li><b>Selection only</b> (on Strata): the bias changes which experts run, not how much each one weighs. The weights are still the router's softmax over the unbiased logits. I measured both variants, see below.</li>
+<li><b>Everywhere the router runs:</b> prompt processing, per-token decode and the speculative verify window, so a prompt is routed the same way as the answer. The MTP drafter stays unbiased; the verify window decides.</li>
+<li><b>Static:</b> the table is read once at startup (48 × 512 floats, about 98 KB per GPU). It does not drift with what happens to be cached at the moment.</li>
+<li><b>Opt-in:</b> with the environment variable unset, nothing changes, bit for bit.</li>
+</ul>
+<p>The mechanism itself is not mine. Skliar et&nbsp;al., <a href="https://arxiv.org/abs/2412.00099">"Mixture of Cache-Conditional Experts"</a> (TMLR 2025), bias routing towards cached experts in the same spirit; I came to it from the cuts and found the paper afterwards. My part is narrower: a static profile from real agent sessions as the hot set, the graded edge, and the test of whether the agent still gets its tasks done.</p>
+</section>
+
+<section id="qwen"><h2>Qwen on Strata: the bias as a quality dial</h2>
+<p><a href="https://github.com/Niko1221/Strata">Strata</a> is a local inference engine with its own VRAM expert tier and multi-token prediction. I added PGO-SGB to it in my fork, <a href="https://github.com/oisee/Strata">oisee/Strata</a> (branch <code>cnm/pgo-sgb</code>, opt-in; an upstream PR is in preparation, not merged). Model: ISTA-DASLab's Qwen3.8-Flash-Next GSQ-RCO IQ3_S, all 512 experts, PB3-192 as the starting residency, context 131,072.</p>
+<p>First surprise: on two 16 GB cards Strata's cache already hits 83% of expert lookups without any bias. So the bias did not buy speed here. What it buys is control over how far the model drifts from itself.</p>
+</section>
+
+<div class="chart" id="ch-kl"><h3>KL to the unbiased model rises with the cap</h3><p class="sub">Qwen3.8-Flash-Next IQ3_S on Strata, 2 GPUs, forced-window KL vs the unbiased engine, 16,884 positions per arm. Lower is closer.</p><div class="legend"><span><span class="sw" style="background:var(--c1)"></span>all texts (pooled)</span><span><span class="sw" style="background:var(--c2)"></span>Russian UI text</span></div><div class="plot"></div></div>
+
+<div class="chart" id="ch-qdec"><h3>Decode speed barely moves</h3><p class="sub">Same arms, decode tokens/s, median of 3 (1,628-token prompt, 128 greedy tokens). The hit rate is in the tooltip.</p><div class="plot"></div></div>
+
+<section>
+<p>Russian is the canary again: at cap −2 the Russian UI text drifts by KL 1.028, twice the pooled number. The cold tail is where the other languages live. I picked <b>cap −0.5</b> as the default with a rule written down before the run: replay the first 46 requests of a recorded agent session (context 15.8K → 76.3K tokens) three times per arm in a Latin square, and keep −0.5 unless it is more than 5% slower than −1. Its median wall time was 15% lower (503.7 s vs 592.6 s), but that mostly means it wrote fewer tokens; at fixed work the two were within 0.6% (587.0 s vs 583.4 s). So −0.5 stayed. Its KL is about two thirds of −1's.</p>
+<p>Two more comparisons settled the shape of the method:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Arm (2 GPUs, hot set 192)</th><th class="n">Pooled KL</th><th class="n">Same top-1</th><th class="n">Russian UI KL</th></tr></thead>
+<tbody>
+<tr><td>Strata's built-in residency prior (+1.5 to whatever is resident; default on cards ≤13 GB)</td><td class="n">0.546</td><td class="n">71.5%</td><td class="n">0.939</td></tr>
+<tr><td>PGO-SGB, mixing weights damped too (llama.cpp style)</td><td class="n">0.248</td><td class="n">79.4%</td><td class="n">0.271</td></tr>
+<tr><td>PGO-SGB, selection only</td><td class="n">0.176</td><td class="n">82.8%</td><td class="n">0.166</td></tr>
+<tr><td>Residency profile only, no bias</td><td class="n">0.064</td><td class="n">90.5%</td><td class="n">0.026</td></tr>
+</tbody></table></div>
+<p>Selection-only was closer than damped weights on every text (pooled +41% for damped). And a static graded table beats a flat bonus for "whatever happens to be resident" by a factor of three. These KL numbers come from a forced-window read; a self-check showed that it differs from the decode distribution (same top-1 95.3%), so the arms compare with each other but are not the decode-time KL.</p>
+<p>The residency-only row is not zero either. My reading, not a measured cause: Strata's tail skip drops some missed experts, and which experts miss depends on what is resident. Turning tail skip off costs 8.3% decode in the replay.</p>
+<h3>Agent tasks</h3>
+<p>Same bench as last time: real ABAP repository and smoke tasks, hidden tests, the agent only gets <code>osg-abap lint / check / test</code>. On Strata with the bias, every run so far resolved: 10 of 10 at cap −1 (four smoke tasks plus apc-002 twice, and the long repository tasks L1a twice and L2b twice), 5 of 5 at cap −0.5, and 8 of 8 in an interleaved A/B of −0.5 against −1. That is 23 runs on 6 distinct tasks.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Task (cap −1, i7)</th><th class="n">Strata, s</th><th class="n">llama.cpp graded, s</th><th class="n">calls</th><th class="n">decode t/s</th></tr></thead>
+<tbody>
+<tr><td>abapgit-l0-line-018</td><td class="n">255</td><td class="n">639</td><td class="n">18</td><td class="n">65.9</td></tr>
+<tr><td>apc-l1-method-002</td><td class="n">163</td><td class="n">311</td><td class="n">13</td><td class="n">65.8</td></tr>
+<tr><td>core-l0-body-018</td><td class="n">681</td><td class="n">1,073</td><td class="n">50</td><td class="n">65.8</td></tr>
+<tr><td>abapgit-l0-block-015</td><td class="n">1,540</td><td class="n">2,694</td><td class="n">84</td><td class="n">64.8</td></tr>
+<tr><td><b>4 smoke tasks</b></td><td class="n"><b>2,639</b></td><td class="n"><b>4,717</b></td><td></td><td></td></tr>
+<tr><td>L2b (repository task, peak context 92K)</td><td class="n">3,225</td><td class="n">5,047</td><td class="n">176</td><td class="n">61.9</td></tr>
+</tbody></table></div>
+<p>So about 44% less wall time than my llama.cpp setup on the same smoke tasks. That is mostly Strata, not the bias. At the default cap −0.5 the same four tasks took 3,448 s in total (N = 1, longer agent paths): slower than −1, still about 27% under llama.cpp. In the A/B, −0.5 decoded at a median 63.9 tokens/s against 65.8 for −1 and wrote fewer output tokens in total (81,253 vs 99,925), but N = 2 per task cannot resolve a 10% effect, and single runs swung widely: one −0.5 run took 57 calls, one −1 run 67.</p>
+</section>
+
+<section id="glm"><h2>The same idea on GLM-5.3-Flash</h2>
+<p>GLM-5.3-Flash is the model I actually started this project with: about 320B total parameters, 18B active. On my box the unsloth UD-IQ3_XXS runs in <a href="https://github.com/mw00/project-maya">Project Maya</a>, an engine built on Strata (per its README) and rewritten for GLM, with a GLM fast path, a VRAM expert cache, a CPU expert lane and MTP. Out of the box (Maya v1.1.38, with the unsloth quant rather than Maya's own) it decoded <b>11.3 tokens/s</b>, with the VRAM expert cache hitting 57–58%. llama.cpp on the same weights did 5.78 (not a strict A/B).</p>
+<p>Maya needed no engine change for the bias: GLM's router already has a per-expert bias tensor, so I wrote the PGO-SGB table into a copy of the weight pack. But GLM's router is a sigmoid, and the bias is added <em>after</em> the sigmoid, in probability space. The existing bias values within a layer have a standard deviation of only 0.05–0.10, so a cap of −0.5 or −1 acts almost like a hard mask on about 80% of the experts. At cap −1 the model told me that "the 2nd prime is 4". =) So the caps here are much smaller, and I swept them.</p>
+</section>
+
+<div class="chart"><h3>GLM bias sweep: speed and cache hits rise with the cap</h3><p class="sub">GLM-5.3-Flash UD-IQ3_XXS on Maya, i7, our PB3 profile. Two separate measures, two charts.</p>
+<div class="pair"><div id="ch-gdec"><p class="sub"><b>Decode, tokens/s</b> (median of 3, 1,548-token prompt, 128 tokens)</p><div class="plot"></div></div><div id="ch-ghit"><p class="sub"><b>VRAM expert-cache hit, %</b> (same runs)</p><div class="plot"></div></div></div></div>
+
+<section>
+<p>Decode and hit rate rise smoothly with the cap. Wall time on a real task does not: cap −0.5 solved the same smoke task once in 1,092 s with 25 calls and once in 4,130 s with 81 calls, rewriting its own test class 16 times. Wall time follows the agent's calls and thinking, not decode speed. So I repeated the three candidates on the same task, up to three times each:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Arm (apc-002, effort medium)</th><th class="n">N</th><th class="n">median wall, s</th><th class="n">range</th><th class="n">median calls</th><th class="n">decode t/s</th></tr></thead>
+<tbody>
+<tr><td>no bias</td><td class="n">3</td><td class="n">1,017</td><td class="n">838–1,804</td><td class="n">25</td><td class="n">11.8</td></tr>
+<tr><td><b>cap −0.25</b></td><td class="n">3</td><td class="n"><b>599</b></td><td class="n">534–1,018</td><td class="n"><b>17</b></td><td class="n">19.6</td></tr>
+<tr><td>cap −0.5</td><td class="n">4</td><td class="n">1,090</td><td class="n">823–4,130</td><td class="n">31</td><td class="n">21.3</td></tr>
+</tbody></table></div>
+<p>All 13 runs resolved. By the no-overlap rule I wrote down beforehand, the arms are <b>not separated</b> at N = 3; cap −0.25 leads on both medians, so it became the default. Likely best, not proven.</p>
+<p>Then the whole smoke set at cap −0.25: <b>11 of 11 resolved</b>, decode 18.6–20.3 tokens/s and a hit rate of 84–85% on every task. The twelfth task, <code>osg-l0-body-003</code>, is excluded by the rule from last time: no model has solved it, including the full Qwen. The median wall time was 960 s per task; full Qwen IQ3_S in llama.cpp took a median 554 s on the same eleven. Not a strict A/B: different engines, days and effort settings.</p>
+<h3>Is the GLM code any good?</h3>
+<p>Pass/fail does not separate the models, so I compared the code. Automatic metrics on the 11 solved tasks: the production fixes look alike (one method touched, median 22 statements, about 70–75 diff lines). The tests do not: GLM wrote fewer asserts (median 3 vs 8), ran the tests more often (10 vs 2), and made more calls (31 vs 24). Caveat: GLM ran at effort medium, Qwen at xhigh.</p>
+<p>Three tasks went to two blind LLM judges, with positions swapped between judges. The production fix was correct in all six solutions. After unblinding both judges agreed: GLM won one task (an exact two-line restore), Qwen won two, because GLM deleted its tests in one and loosened its assertions until they passed in the other. Sounds familiar. =)</p>
+</section>
+
+<section id="defer"><h2>And then a two-line engine patch</h2>
+<p>With the bias in place, where does a GLM token's time go? Maya splits the layers across the two GPUs ("parts"). I profiled one part pass:</p>
+</section>
+
+<div class="chart" id="ch-break"><h3>Where one part pass spends its 41 ms</h3><p class="sub">GLM-5.3-Flash, cap −0.25, Maya's profiler, milliseconds per pass (a token is about 1.33 passes with speculation). Ranges are drawn at their midpoints.</p><div class="plot"></div></div>
+
+<section>
+<p>The biggest single item is waiting for the CPU lane: the experts that live in RAM, computed by the CPU. Maya already has a lossy option for that, <code>DEFER_CPU</code>: add a layer's CPU experts after the <em>next</em> layer's attention instead of before it, so the CPU overlaps with GPU work. But upstream only applies it to the first part of a split, and on my box the second GPU sets the pace. I read the code for a reason behind that restriction and did not find one: each part has its own CPU lane state, and nothing deferred crosses a GPU hop. So the patch is two code lines: <code>DEFER_CPU=2</code> means every part.</p>
+<ul>
+<li>Decode: 18.6 → <b>21.3</b> tokens/s (+14.5%, median of 6 from 2 interleaved starts). The second GPU's CPU-lane wait went from 11.6 to 5.0 ms per token.</li>
+<li>With speculation cancel on top (discard a rejected draft pass early, lossless by construction): <b>22.2</b> tokens/s. That extra +4% is inside the noise; it is harmless, and I keep it.</li>
+<li>It is lossy, and I measured how much: teacher-forced KL on 999 ABAP positions was 0.131 against the unpatched engine, where two runs of the unpatched engine differ by 0.045 from each other.</li>
+<li>Four smoke tasks, two runs each, on the combination: 8 of 8 resolved, and median calls stayed within 1.5× of cap −0.25 alone.</li>
+</ul>
+<p>I have the patch ready as a pull request for Project Maya upstream (not merged). It is opt-in and changes nothing with the variable unset.</p>
+</section>
+
+<div class="chart" id="ch-path"><h3>GLM-5.3-Flash on two RTX 4060 Ti: from 5.78 to 22.2 tokens/s</h3><p class="sub">Decode tokens/s, each bar adds one step. Medians; each bar comes from its own run (see tooltips), not one session: same-session gains are +63% (bias), +14.5% (patch), +4% (cancel).</p><div class="plot"></div></div>
+
+<section id="negative"><h2>What didn't work</h2>
+<p>Some of my favourite ideas this week died on contact with a stopwatch. Here they are, so nobody has to try them again on the same hardware.</p>
+<ul>
+<li><b>Expert parallelism over the LAN.</b> The second machine (i5) has 122 GB free RAM and the GGUF on its own NVMe. But Maya's CPU lane, or any remote tier, sits on the critical path of every one of the 42 MoE layers. Measured round trip for one hidden state over 2.5 GbE: median 167 µs, so 42 of them is 6.6 ms per token, with no batching across MTP drafts. Modelled best case: <b>1.15×</b> at median latency, against a 1.4× bar. No prototype.</li>
+<li><b>A helper GPU for experts.</b> Lossless, and 43% slower (11.0 vs 19.2 tokens/s): with the trunk on GPU 0, only 785 expert slots were left and the hit rate fell to 46%.</li>
+<li><b>Skipping missed experts.</b> It cut the CPU lane from 33.1 to 27.5 ms per token and did not speed up decode, because the second GPU, not the CPU lane, sets the pace. That is how I found the <code>DEFER_CPU</code> lever above.</li>
+<li><b>Two parallel streams:</b> 1.15× total throughput, each stream much slower. Not worth it for one agent.</li>
+<li><b>The "horse": a two-bank tier for Qwen in Strata</b>, with a 2-bit Q2_0 copy of every expert for the CPU's misses. Its gate was KL ≤ 0.02 against the same engine without it. It measured 0.156, and its +19% decode was invalid anyway (the Q2_0 bank was 9–19% in page cache, and the two arms decoded different token streams). Dropped by its own rule.</li>
+</ul>
+</section>
+
+<section id="not-proven"><h2>Not proven, and what's next</h2>
+<ul>
+<li><b>Same pass rate on fresh tasks.</b> Still the main debt. Smoke tasks were partly in the profile corpus; they are an engineering check, not a generalisation test. I need held-out tasks, the same harness and budget for parent and candidate, and a loss bar decided in advance.</li>
+<li><b>N.</b> Almost every task run here is N = 1 or 2. Wall time varies up to 4× between runs of the same task.</li>
+<li><b>KL on GLM.</b> Maya's GLM path exposes no log-probabilities for the bias sweep; the teacher-forced scorer came later and was used for the patch only.</li>
+<li><b>Effort.</b> GLM ran at effort medium, Qwen at xhigh. The code comparison carries that confound.</li>
+<li><b>Next:</b> the paired held-out study; a cap chosen per machine (an 8 GB card wants a smaller hot set); and phase 2, the full 744B GLM-5.3 with the same pipeline.</li>
+</ul>
+<p>The nice part: the pipeline did carry over. Profile from agent sessions, one table, one dial, the same bench. A new engine and a new router type cost a sweep and a few days, not a rewrite. Nudge, don't cut. =)</p>
+<p>Thanks to Strata (Niko1221), Project Maya (mw00, co-maintained by needmorevram), unsloth for the GLM GGUFs, ISTA-DASLab for the Qwen IQ3_S, Skliar et&nbsp;al. for the cache-conditional routing paper, and the ABAP tooling community behind the bench.</p>
+<p class="comments-link"><a href="https://www.linkedin.com/in/oisee/">💬 Comments and questions: find me on LinkedIn →</a></p>
+</section>
+
+<aside class="data-note" id="data"><b>Data.</b> Every number on this page comes from a run report in my cnm work repository (private for now). Run directories: Qwen on Strata: <code>2026-10-29-strata-cap-sweep</code>, <code>2026-10-29-strata-kl-i7</code>, <code>2026-10-29-cap-replay</code>, <code>2026-10-29-qwen-c05-check</code>, <code>2026-10-29-c05-vs-c1-ab</code>, <code>2026-10-29-strata-smoke11-pr6</code>, <code>2026-10-29-i7-queue-agent-e0</code>; hard vs graded KL in llama.cpp: <code>2026-10-28-s19-d-pod</code>. GLM on Maya: <code>2026-10-29-maya-glm-step0</code>, <code>2026-10-29-maya-glm-step0b</code>, <code>2026-10-30-maya-glm-bias-sweep</code>, <code>2026-10-30-maya-glm-smoke12-c025</code>, <code>2026-10-30-glm-vs-qwen-code-metrics</code>, <code>2026-10-31-maya-glm-defer2-spec</code>, <code>2026-10-31-maya-glm-cancel-combo</code>. Negative results: <code>2026-10-30-net-ep-feasibility</code>, <code>2026-10-30-maya-glm-arms</code>, <code>2026-10-29-stratagasus-bmin</code>. Speeds are engine timings, one run at a time on an idle i7.</aside>
+<footer>oisee · <a href="../">oois.ee</a> · The 3D scene uses three.js 0.160.0 from jsDelivr; everything else is inline HTML, SVG and JavaScript.</footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script>
+/* theme */
+(function(){var s=document.getElementById('theme');
+function apply(v){if(v==='auto')document.documentElement.removeAttribute('data-theme');else document.documentElement.setAttribute('data-theme',v);}
+try{var q=new URLSearchParams(location.search).get('theme');if(q==='light'||q==='dark'){s.value=q;apply(q);}}catch(e){}
+s.onchange=function(e){apply(e.target.value);};})();
+</script>
+
+<script>
+/* charts: inline SVG, colours via CSS vars so the theme switch needs no redraw */
+(function(){
+'use strict';
+var NS='http://www.w3.org/2000/svg';
+function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
+function txt(p,x,y,s,a){var e=el('text',Object.assign({x:x,y:y,'font-size':13,style:'fill:var(--muted)'},a||{}),p);e.textContent=s;return e;}
+var tip=document.getElementById('tip');
+function showTip(html,ev){tip.innerHTML=html;tip.style.opacity=1;var r=tip.getBoundingClientRect();var x,y;
+  if(ev&&ev.clientX!=null){x=ev.clientX+14;y=ev.clientY+14;}else{var b=ev.target.getBoundingClientRect();x=b.left+b.width/2;y=b.top-r.height-8;}
+  if(x+r.width>innerWidth-8)x=innerWidth-r.width-8;if(x<8)x=8;if(y+r.height>innerHeight-8)y=y-r.height-28;if(y<8)y=8;tip.style.left=x+'px';tip.style.top=y+'px';}
+function hideTip(){tip.style.opacity=0;}
+function hit(p,a,html){var r=el('rect',Object.assign({class:'hit',tabindex:0,role:'img','aria-label':html.replace(/<[^>]+>/g,' ')},a),p);
+  r.addEventListener('pointermove',function(e){showTip(html,e);});r.addEventListener('pointerleave',hideTip);
+  r.addEventListener('focus',function(e){showTip(html,{target:r});});r.addEventListener('blur',hideTip);return r;}
+function fmt(v,d){return v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
+function table(host,head,rows){var d=document.createElement('details');d.innerHTML='<summary>Data table</summary>';var w=document.createElement('div');w.className='table-wrap';
+  var h='<table><thead><tr>'+head.map(function(c,i){return '<th'+(i?' class="n"':'')+'>'+c+'</th>';}).join('')+'</tr></thead><tbody>';
+  rows.forEach(function(r){h+='<tr>'+r.map(function(c,i){return '<td'+(i?' class="n"':'')+'>'+c+'</td>';}).join('')+'</tr>';});w.innerHTML=h+'</tbody></table>';d.appendChild(w);host.appendChild(d);}
+function niceTicks(max,n){var step=Math.pow(10,Math.floor(Math.log10(max/n)));var e=max/n/step;step*=e>5?10:e>2?5:e>1?2:1;var t=[];for(var v=0;v<=max+1e-9;v+=step)t.push(+v.toFixed(6));return t;}
+
+/* vertical bars, one series */
+function vbars(host,o){var plot=host.querySelector('.plot');
+  function draw(){var W=Math.max(260,plot.clientWidth),H=o.h||230,L=o.left||40,R=8,T=20,B=o.bottom||40;plot.textContent='';
+    var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':o.label},plot);
+    var max=o.max,y=function(v){return T+(1-v/max)*(H-T-B);};
+    niceTicks(max,4).forEach(function(t){el('line',{x1:L,x2:W-R,y1:y(t),y2:y(t),style:'stroke:var(--grid)'},svg);txt(svg,L-6,y(t)+4,fmt(t,o.tickDec||0),{'text-anchor':'end','font-size':11});});
+    var n=o.cats.length,bw=(W-L-R)/n,bar=Math.min(46,bw*0.62);
+    o.vals.forEach(function(v,i){var cx=L+bw*(i+.5),x=cx-bar/2,yt=y(v),h=y(0)-yt,rr=Math.min(4,h);
+      el('path',{d:'M'+x+','+y(0)+'V'+(yt+rr)+'Q'+x+','+yt+' '+(x+rr)+','+yt+'H'+(x+bar-rr)+'Q'+(x+bar)+','+yt+' '+(x+bar)+','+(yt+rr)+'V'+y(0)+'Z',style:'fill:var(--c1)'},svg);
+      txt(svg,cx,yt-6,fmt(v,o.dec),{'text-anchor':'middle','font-size':12,style:'fill:var(--fg)'});
+      txt(svg,cx,H-B+17,o.cats[i],{'text-anchor':'middle','font-size':12});
+      hit(svg,{x:L+bw*i,y:T,width:bw,height:H-T-B+20},o.tip(i));});
+    el('line',{x1:L,x2:W-R,y1:y(0),y2:y(0),style:'stroke:var(--muted)'},svg);
+    if(o.xlabel)txt(svg,(L+W-R)/2,H-4,o.xlabel,{'text-anchor':'middle','font-size':11});}
+  draw();new ResizeObserver(function(){draw();}).observe(plot);table(host,o.thead,o.trows);}
+
+/* horizontal bars, one series */
+function hbars(host,o){var plot=host.querySelector('.plot');
+  function draw(){var W=Math.max(260,plot.clientWidth),narrow=W<520,rowH=narrow?52:38,T=6,H=T+o.rows.length*rowH+20;plot.textContent='';
+    var L=narrow?8:(o.left||200),R=56;var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':o.label},plot);
+    var x=function(v){return L+v/o.max*(W-L-R);};
+    niceTicks(o.max,narrow?3:5).forEach(function(t){el('line',{x1:x(t),x2:x(t),y1:T,y2:H-20,style:'stroke:var(--grid)'},svg);txt(svg,x(t),H-5,fmt(t,0),{'text-anchor':'middle','font-size':11});});
+    o.rows.forEach(function(r,i){var y0=T+i*rowH,by=narrow?y0+22:y0+8,bh=narrow?18:22;
+      if(narrow)txt(svg,L,y0+16,r[0],{'font-size':12,style:'fill:var(--fg)'});else txt(svg,L-8,by+bh/2+4,r[0],{'text-anchor':'end','font-size':13,style:'fill:var(--fg)'});
+      var w=x(r[1])-L,rr=Math.min(4,w);el('path',{d:'M'+L+','+by+'H'+(L+w-rr)+'Q'+(L+w)+','+by+' '+(L+w)+','+(by+rr)+'V'+(by+bh-rr)+'Q'+(L+w)+','+(by+bh)+' '+(L+w-rr)+','+(by+bh)+'H'+L+'Z',style:'fill:var(--c1)'},svg);
+      txt(svg,L+w+6,by+bh/2+4,r[2]||fmt(r[1],o.dec),{'font-size':12,style:'fill:var(--fg)'});
+      hit(svg,{x:0,y:y0,width:W,height:rowH},r[3]);});
+    el('line',{x1:L,x2:L,y1:T,y2:H-20,style:'stroke:var(--muted)'},svg);}
+  draw();new ResizeObserver(function(){draw();}).observe(plot);table(host,o.thead,o.rows.map(function(r){var a=[r[0],r[2]||fmt(r[1],o.dec)];if(r[4])a.push(r[4]);return a;}));}
+
+/* lines, up to 2 series, one axis */
+function lines(host,o){var plot=host.querySelector('.plot');
+  function draw(){var W=Math.max(260,plot.clientWidth),H=250,L=44,R=W<520?56:96,T=14,B=40;plot.textContent='';
+    var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':o.label},plot);
+    var n=o.cats.length,x=function(i){return L+12+i*(W-L-R-24)/(n-1);},y=function(v){return T+(1-v/o.max)*(H-T-B);};
+    niceTicks(o.max,4).forEach(function(t){el('line',{x1:L,x2:W-R,y1:y(t),y2:y(t),style:'stroke:var(--grid)'},svg);txt(svg,L-6,y(t)+4,fmt(t,1),{'text-anchor':'end','font-size':11});});
+    el('line',{x1:L,x2:W-R,y1:y(0),y2:y(0),style:'stroke:var(--muted)'},svg);
+    o.cats.forEach(function(c,i){txt(svg,x(i),H-B+17,c,{'text-anchor':'middle','font-size':12});});
+    txt(svg,(L+W-R)/2,H-4,o.xlabel,{'text-anchor':'middle','font-size':11});
+    o.series.forEach(function(s,k){var d='';s.v.forEach(function(v,i){d+=(i?'L':'M')+x(i)+','+y(v);});
+      el('path',{d:d,fill:'none',style:'stroke:var(--'+s.c+');stroke-width:2'+(k?';stroke-dasharray:6 4':'')},svg);
+      s.v.forEach(function(v,i){if(k)el('rect',{x:x(i)-4.5,y:y(v)-4.5,width:9,height:9,rx:1.5,style:'fill:var(--'+s.c+');stroke:var(--paper);stroke-width:2'},svg);else el('circle',{cx:x(i),cy:y(v),r:5,style:'fill:var(--'+s.c+');stroke:var(--paper);stroke-width:2'},svg);});
+      var lv=s.v[n-1];txt(svg,x(n-1)+10,y(lv)+4,(W<520?'':s.name+' ')+fmt(lv,3),{'font-size':12,style:'fill:var(--fg)'});});
+    for(var i=0;i<n;i++){var cw=(W-L-R-24)/(n-1);hit(svg,{x:x(i)-cw/2,y:T,width:cw,height:H-T-B},o.tip(i));}}
+  draw();new ResizeObserver(function(){draw();}).observe(plot);table(host,o.thead,o.trows);}
+
+/* data: see FACTS.md for sources */
+var Q={cats:['off','−0.5','−1','−1.5','−2'],kl:[0,0.098,0.153,0.333,0.507],ru:[0,0.064,0.158,0.664,1.028],top1:[100,87.1,83.7,77.0,72.7],dnll:['0','+0.028','+0.069','+0.191','+0.357'],dec:[58.74,57.44,59.45,64.71,60.06],hit:[83.4,89.7,92.4,92.1,92.0],mtp:[68.8,62.6,64.2,73.5,65.5]};
+lines(document.getElementById('ch-kl'),{label:'KL versus cap, Qwen on Strata',cats:Q.cats,max:1.1,xlabel:'PGO-SGB cap',
+  series:[{name:'pooled',v:Q.kl,c:'c1'},{name:'Russian UI',v:Q.ru,c:'c2'}],
+  tip:function(i){return '<b>cap '+Q.cats[i]+'</b><br>pooled KL <b>'+fmt(Q.kl[i],3)+'</b>, same top-1 '+fmt(Q.top1[i],1)+'%, ΔNLL '+Q.dnll[i]+'<br>Russian UI KL <b>'+fmt(Q.ru[i],3)+'</b>';},
+  thead:['cap','pooled KL','Russian UI KL','same top-1 %'],trows:Q.cats.map(function(c,i){return [c,fmt(Q.kl[i],3),fmt(Q.ru[i],3),fmt(Q.top1[i],1)];})});
+vbars(document.getElementById('ch-qdec'),{label:'Decode tokens per second versus cap, Qwen on Strata',cats:Q.cats,vals:Q.dec,max:70,dec:1,xlabel:'PGO-SGB cap',
+  tip:function(i){return '<b>cap '+Q.cats[i]+'</b><br>decode <b>'+fmt(Q.dec[i],2)+'</b> tok/s (median of 3)<br>cache hit '+fmt(Q.hit[i],1)+'%, MTP accepted '+fmt(Q.mtp[i],1)+'%';},
+  thead:['cap','decode tok/s','hit %'],trows:Q.cats.map(function(c,i){return [c,fmt(Q.dec[i],2),fmt(Q.hit[i],1)];})});
+var G={cats:['0','−0.0625','−0.125','−0.25','−0.5'],dec:[11.6,14.3,17.4,18.9,21.6],runs:['11.6 / 12.0 / 11.6','14.3 / 14.1 / 15.0','15.7 / 17.9 / 17.4','18.3 / 19.1 / 18.9','20.7 / 21.6 / 21.8'],hit:[58,70,77,82,86],pre:[132.0,150.5,187.4,254.3,316.4]};
+var gshort=['0','−⅟16','−⅛','−¼','−½'];
+vbars(document.getElementById('ch-gdec'),{label:'GLM decode versus cap',cats:gshort,vals:G.dec,max:25,dec:1,h:210,left:32,xlabel:'cap',
+  tip:function(i){return '<b>cap '+G.cats[i]+'</b><br>decode <b>'+fmt(G.dec[i],1)+'</b> tok/s<br>runs '+G.runs[i]+'<br>prefill '+fmt(G.pre[i],1)+' tok/s';},
+  thead:['cap','decode tok/s','runs'],trows:G.cats.map(function(c,i){return [c,fmt(G.dec[i],1),G.runs[i]];})});
+vbars(document.getElementById('ch-ghit'),{label:'GLM cache hit versus cap',cats:gshort,vals:G.hit,max:100,dec:0,h:210,left:32,xlabel:'cap',
+  tip:function(i){return '<b>cap '+G.cats[i]+'</b><br>VRAM expert-cache hit <b>'+G.hit[i]+'%</b>';},
+  thead:['cap','hit %'],trows:G.cats.map(function(c,i){return [c,G.hit[i]];})});
+hbars(document.getElementById('ch-break'),{label:'Time per part pass',max:20,dec:1,left:230,thead:['component','ms per pass'],rows:[
+  ['CPU-lane wait (RAM experts)',11.5,'11–12 ms','<b>CPU-lane wait</b>: 11–12 ms per pass<br>experts in RAM, computed by the CPU'],
+  ['PCIe expert fetch',7,'7 ms','<b>PCIe fetch</b>: 7 ms per pass<br>cache misses copied to VRAM'],
+  ['MoE on the GPU',6,'6 ms','<b>MoE on the GPU</b>: 6 ms per pass'],
+  ['rest: attention, dense, host',15.5,'15–16 ms','<b>Everything else</b>: 15–16 ms per pass<br>attention, shared expert, dense layers, host']]});
+hbars(document.getElementById('ch-path'),{label:'GLM decode path',max:25,dec:1,left:230,thead:['step','decode tok/s','run'],rows:[
+  ['llama.cpp, same weights',5.78,'5.78','<b>llama.cpp</b>: 5.78 tok/s<br>same GGUF, not a strict A/B<br>run 2026-10-29-maya-glm-step0','2026-10-29-maya-glm-step0'],
+  ['Project Maya v1.1.38, as shipped',11.3,'11.3','<b>Maya v1.1.38</b>, shipped profile: 11.3 tok/s<br>runs 10.9 / 11.3 / 11.4, cache hit 57–58%<br>run 2026-10-29-maya-glm-step0','2026-10-29-maya-glm-step0'],
+  ['+ PGO-SGB cap −0.25',18.9,'18.9','<b>+ PGO-SGB cap −0.25</b>: 18.9 tok/s<br>runs 18.3 / 19.1 / 18.9 (same-session base 11.6)<br>run 2026-10-30-maya-glm-bias-sweep','2026-10-30-maya-glm-bias-sweep'],
+  ['+ DEFER_CPU=2 patch',21.3,'21.3','<b>+ DEFER_CPU=2</b> (patched): 21.3 tok/s<br>median of 6, same-session base 18.6 (+14.5%)<br>run 2026-10-31-maya-glm-cancel-combo','2026-10-31-maya-glm-cancel-combo'],
+  ['+ SPEC_CANCEL',22.2,'22.2','<b>+ SPEC_CANCEL</b>: 22.2 tok/s<br>median of 6, +4.2% vs DEFER alone, ranges overlap<br>run 2026-10-31-maya-glm-cancel-combo','2026-10-31-maya-glm-cancel-combo']]});
+})();
+</script>
+
+<script>
+/* 3D canyon: fallback watchdog for when the module (three.js from CDN) cannot load */
+setTimeout(function(){if(!window.__C3D_READY){var f=document.getElementById('c3d-fallback');if(f&&f.hidden&&window.__C3D_FALLBACK)window.__C3D_FALLBACK('three.js did not load');}},9000);
+</script>
+
+<script>
+/* shared toy model for the canyon: experts, brightness, seeded ball stream, physics. No three.js here. */
+(function(){
+'use strict';
+var SEED=20261031;
+function h32(n){n=(n^SEED)>>>0;n=Math.imul(n^(n>>>16),0x21f0aaad)>>>0;n=Math.imul(n^(n>>>15),0x735a2d97)>>>0;return((n^(n>>>15))>>>0)/4294967296;}
+function rnd(k,ch){return h32(((k*8+ch)>>>0)^0x9e3779b9);}
+var N=18,HOT_N=7,W=18,LZ=14,Z1=8.2,RAMP_H=2.6,DMAX=1.25,R=0.17;
+var b=[];for(var i=0;i<N;i++){b.push(Math.pow(10,-2.5*rnd(i,7)));}
+var mx=Math.max.apply(null,b);b=b.map(function(v){return v/mx;});
+var order=b.map(function(_,i){return i;}).sort(function(p,q){return b[q]-b[p];});
+var hot=b.map(function(){return false;});order.slice(0,HOT_N).forEach(function(i){hot[i]=true;});
+var bEdge=b[order[HOT_N-1]];var HOTI=order.slice(0,HOT_N);
+var cum=[],tot=0;for(i=0;i<N;i++){tot+=Math.sqrt(b[i]);cum.push(tot);}
+function wish(u){var x=u*tot;for(var i=0;i<N;i++)if(cum[i]>x)return i;return N-1;}
+var M={N:N,HOT_N:HOT_N,W:W,LZ:LZ,Z1:Z1,DMAX:DMAX,R:R,b:b,hot:hot,bEdge:bEdge,s:0.25,depth:[]};
+/* soft groove depths for slider s in [0,1]: cap = -4s; depth = (bias - cap)/4 * DMAX, hot = s*DMAX */
+M.setS=function(s){M.s=s;var cap=-4*s;M.cap=cap;M.depth=b.map(function(bi,i){if(s<=0)return 0;var bias=hot[i]?0:Math.max(cap,Math.log(bi/bEdge));return (bias-cap)/4*DMAX;});};
+M.setS(0.25);
+function smooth(a,c,x){var t=Math.min(1,Math.max(0,(x-a)/(c-a)));return t*t*(3-2*t);}
+function base(z){var r=z<Z1?RAMP_H*Math.pow(1-z/Z1,1.0):0;var tilt=z>Z1?-0.22*(z-Z1)/(LZ-Z1):0;var wall=z>LZ-0.7?Math.pow((z-(LZ-0.7))/0.7,2)*2.5:0;var back=z<0.4?Math.pow((0.4-z)/0.4,2)*2:0;return r+tilt+wall+back;}
+/* height of terrain kind ('hard'|'soft') at (x,z) */
+M.h=function(kind,x,z){var xi=Math.min(N-1,Math.max(0,Math.floor(x)));var u=(x-xi-0.5)/0.5;var g;
+  if(kind==='hard'){var zf=smooth(Z1-0.12,Z1+0.12,z);if(hot[xi])g=DMAX*(1-Math.pow(Math.abs(u),8))*zf;else{var dd=99;for(var hi=0;hi<HOTI.length;hi++)dd=Math.min(dd,Math.abs(x-HOTI[hi]-0.5)-0.5);g=-0.5*Math.min(1.4,Math.max(0,dd))*smooth(Z1-3,Z1+0.3,z);}}
+  else{var xc=x-0.5,i0=Math.floor(xc),t=xc-i0,da=M.depth[Math.min(N-1,Math.max(0,i0))],db=M.depth[Math.min(N-1,Math.max(0,i0+1))],tt=t;
+    g=(1.0*(da+(db-da)*tt)+0.0*M.depth[xi]*0.5*(1+Math.cos(Math.PI*u)))*smooth(2.5,Z1+0.6,z);}
+  return base(z)-g;};
+M.groove=function(kind,xi){return kind==='hard'?(hot[xi]?DMAX:0):M.depth[xi];};
+M.ball=function(k){var w=wish(rnd(k,0));return {wish:w,str:0.3+1.1*Math.pow(rnd(k,1),1.6),x0:Math.min(W-0.4,Math.max(0.4,w+0.5+3.2*(rnd(k,2)-0.5)+1.6*(rnd(k,5)-0.5))),z0:0.6+0.8*rnd(k,3),vx0:(rnd(k,4)-0.5)*0.8};};
+/* physics constants */
+var AW=3,G=9.8,ACC_CAP=60,VMAX=7,FRIC=1.7,GAIN=4,VK=2.2,REST_V=0.22,REST_T=0.45,MAX_AGE=13,SUB=1/240;
+M.MAX_LIVE=240;M.TOTAL=700;M.RATE=14;
+M.newSim=function(kind){return {kind:kind,balls:[],st:{n:0,cache:0,own:0,stuck:0,slow:0,wrong:0}};};
+M.spawn=function(sim,k,t){var p=M.ball(k);var y=M.h(sim.kind,p.x0,p.z0)+1.4;sim.balls.push({k:k,x:p.x0,z:p.z0,y:y,vx:p.vx0,vz:0.6,vy:0,air:true,wish:p.wish,str:p.str,born:t,rest:0,res:null,fade:0});};
+function grad(kind,x,z){var e=0.01;return [(M.h(kind,x+e,z)-M.h(kind,x-e,z))/(2*e),(M.h(kind,x,z+e)-M.h(kind,x,z-e))/(2*e)];}
+M.step=function(sim,dt,t){var bs=sim.balls,kind=sim.kind;
+  for(var j=0;j<bs.length;j++){var o=bs[j];if(o.res){o.fade+=dt;continue;}
+    var hh=M.h(kind,o.x,o.z);
+    if(o.air){o.vy-=G*dt;o.y+=o.vy*dt;o.x+=o.vx*dt;o.z+=o.vz*dt;if(o.y<=M.h(kind,o.x,o.z)){o.air=false;o.vy=0;}}
+    else{var gr=grad(kind,o.x,o.z);var ax=-G*gr[0],az=-G*gr[1];
+      var xw=o.wish+0.5,dx=xw-o.x,capv=1.2+3*o.str,vdes=Math.max(-capv,Math.min(capv,VK*dx)),amax=AW*o.str;
+      var aw=Math.max(-amax,Math.min(amax,(vdes-o.vx)*GAIN));ax+=aw;
+      var am=Math.hypot(ax,az);if(am>ACC_CAP){ax*=ACC_CAP/am;az*=ACC_CAP/am;}
+      o.vx+=ax*dt;o.vz+=az*dt;var f=Math.max(0,1-FRIC*dt);o.vx*=f;o.vz*=f;
+      var sp=Math.hypot(o.vx,o.vz);if(sp>VMAX){o.vx*=VMAX/sp;o.vz*=VMAX/sp;}
+      o.x+=o.vx*dt;o.z+=o.vz*dt;}
+    if(o.x<R){o.x=R;if(o.vx<0)o.vx*=-0.4;}if(o.x>W-R){o.x=W-R;if(o.vx>0)o.vx*=-0.4;}
+    if(o.z>LZ-R){o.z=LZ-R;if(o.vz>0)o.vz=0;}if(o.z<R){o.z=R;if(o.vz<0)o.vz=0;}
+    if(!o.air)o.y=M.h(kind,o.x,o.z);}
+  /* light ball-ball separation (unresolved only) */
+  var grid={},cs=0.4;for(j=0;j<bs.length;j++){o=bs[j];if(o.res||o.air)continue;var key=Math.floor(o.x/cs)+','+Math.floor(o.z/cs);(grid[key]||(grid[key]=[])).push(o);}
+  for(j=0;j<bs.length;j++){o=bs[j];if(o.res||o.air)continue;var cx=Math.floor(o.x/cs),cz=Math.floor(o.z/cs);
+    for(var a=-1;a<=1;a++)for(var c=-1;c<=1;c++){var bk=grid[(cx+a)+','+(cz+c)];if(!bk)continue;for(var q=0;q<bk.length;q++){var p=bk[q];if(p.k<=o.k)continue;
+      var ddx=p.x-o.x,ddz=p.z-o.z,d=Math.hypot(ddx,ddz);if(d<2*R&&d>1e-6){var push=(2*R-d)/2,nx=ddx/d,nz=ddz/d;o.x-=nx*push;o.z-=nz*push;p.x+=nx*push;p.z+=nz*push;}}}}
+  for(j=bs.length-1;j>=0;j--){o=bs[j];if(o.res){if(o.fade>0.7)bs.splice(j,1);continue;}
+    var age=t-o.born,spd=Math.hypot(o.vx,o.vz);
+    if(!o.air&&o.z>Z1+0.35&&spd<REST_V)o.rest+=dt;else o.rest=0;
+    var near=kind==="hard"&&!o.air&&o.z>Z1+0.35&&age>2&&Math.abs(o.x-(o.wish+0.5))<0.35&&spd<0.5;
+    if(o.rest>REST_T||age>MAX_AGE||near){var bin=Math.min(N-1,Math.max(0,Math.floor(o.x)));
+      var inPit=kind==='hard'?(hot[bin]&&(M.h(kind,o.x,o.z)<base(o.z)-0.3*DMAX)):true;
+      var cache=kind==='hard'?inPit:hot[bin];var own=bin===o.wish&&(kind!=='hard'||inPit);
+      o.res={bin:bin,cache:cache,own:own,stuck:kind==='hard'&&!inPit};
+      var st=sim.st;st.n++;if(cache)st.cache++;if(own)st.own++;if(o.res.stuck)st.stuck++;if(own&&!hot[bin])st.slow++;}}};
+M.SUB=SUB;M.base=base;
+window.__C3D_MODEL=M;
+})();
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+const M=window.__C3D_MODEL;
+const canvas=document.getElementById('c3d-canvas');
+const fig=document.getElementById('C3D');
+const css=k=>getComputedStyle(document.documentElement).getPropertyValue('--'+k).trim();
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let renderer;
+try{renderer=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});}catch(e){renderer=null;}
+if(!renderer||!renderer.getContext()){window.__C3D_FALLBACK('WebGL unavailable');}
+else{
+window.__C3D_READY=true;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(38,2,0.1,300);
+const controls=new OrbitControls(camera,canvas);
+controls.enableDamping=true;controls.dampingFactor=0.08;controls.maxPolarAngle=Math.PI*0.48;controls.minDistance=10;controls.maxDistance=90;controls.enablePan=false;
+const hemi=new THREE.HemisphereLight(0xffffff,0x8899aa,1.4);scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xffffff,1.6);sun.position.set(-12,24,18);scene.add(sun);
+const GAP=4,OFF={hard:-(M.W+GAP)/2-M.W/2,soft:GAP/2},OFFZ={hard:0,soft:0};let narrow=false;
+/* terrain mesh */
+const NXS=M.N*10,NZS=84;
+function terrain(kind){const g=new THREE.BufferGeometry();const nv=(NXS+1)*(NZS+1);
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(nv*3),3));g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(nv*3),3));
+  const idx=[];for(let j=0;j<NZS;j++)for(let i=0;i<NXS;i++){const a=j*(NXS+1)+i,b=a+1,c=a+NXS+1,d=c+1;idx.push(a,c,b,b,c,d);}g.setIndex(idx);
+  const mesh=new THREE.Mesh(g,new THREE.MeshLambertMaterial({vertexColors:true}));mesh.position.x=OFF[kind];scene.add(mesh);return mesh;}
+const meshes={hard:terrain('hard'),soft:terrain('soft')};
+function rebuild(kind){const g=meshes[kind].geometry,P=g.attributes.position.array,C=g.attributes.color.array;
+  const cFg=new THREE.Color(css('fg')),cHot=new THREE.Color(css('c1')),cCold=new THREE.Color(css('discard')),cShelf=new THREE.Color(css('paper')),cRule=new THREE.Color(css('rule'));
+  const tmp=new THREE.Color();let k=0;
+  for(let j=0;j<=NZS;j++){const z=j/NZS*M.LZ;for(let i=0;i<=NXS;i++){const x=Math.min(M.W-1e-4,i/NXS*M.W);const y=M.h(kind,x,z);P[k]=x;P[k+1]=y;P[k+2]=z;
+    const xi=Math.floor(x),dep=M.base(z)-y,gd=M.groove(kind,xi);let f=gd>0?Math.min(1,dep/(0.5*M.DMAX)):0;
+    tmp.copy(cShelf).lerp(cFg,0.13);if(gd>0){tmp.lerp(M.hot[xi]?cHot:cCold,Math.min(1,0.25+0.75*f));}
+    if(i%10===0)tmp.lerp(cRule,0.5);
+    C[k]=tmp.r;C[k+1]=tmp.g;C[k+2]=tmp.b;k+=3;}}
+  g.attributes.position.needsUpdate=true;g.attributes.color.needsUpdate=true;g.computeVertexNormals();g.computeBoundingSphere();}
+/* labels as sprites */
+function label(text){const c=document.createElement('canvas');c.width=512;c.height=96;const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));s.userData={c,text};s.scale.set(8,1.5,1);scene.add(s);return s;}
+function paintLabel(s){const c=s.userData.c,x=c.getContext('2d');x.clearRect(0,0,512,96);x.font='600 46px system-ui,-apple-system,sans-serif';x.textAlign='center';x.fillStyle=css('fg');x.fillText(s.userData.text,256,62);s.material.map.colorSpace=THREE.SRGBColorSpace;s.material.map.needsUpdate=true;}
+const labels={hard:label('Hard mask'),soft:label('PGO-SGB')};
+function layout(){if(narrow){OFF.hard=OFF.soft=-M.W/2;OFFZ.hard=-(M.LZ+3);OFFZ.soft=0;}else{OFF.hard=-(M.W+GAP)/2-M.W/2;OFF.soft=GAP/2;OFFZ.hard=OFFZ.soft=0;}
+  for(const k of ['hard','soft']){meshes[k].position.set(OFF[k],0,OFFZ[k]);labels[k].position.set(OFF[k]+M.W/2,narrow?4.6:5.6,OFFZ[k]+0.4);}}
+/* balls */
+const sphere=new THREE.SphereGeometry(M.R,14,10);
+const balls={};for(const kind of ['hard','soft']){const im=new THREE.InstancedMesh(sphere,new THREE.MeshLambertMaterial(),M.MAX_LIVE+20);im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);im.count=0;im.frustumCulled=false;scene.add(im);balls[kind]=im;}
+let cHotB,cColdB;
+function retheme(){scene.background=new THREE.Color(css('bg'));cHotB=new THREE.Color(css('hot'));cColdB=new THREE.Color(css('cold'));rebuild('hard');rebuild('soft');paintLabel(labels.hard);paintLabel(labels.soft);draw();}
+/* sim state */
+const S={t:0,spawned:0,target:0,playing:false,view:'both'};
+let sims={hard:M.newSim('hard'),soft:M.newSim('soft')};
+const mat=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3();
+function syncBalls(){for(const kind of ['hard','soft']){const im=balls[kind],bs=sims[kind].balls;let n=0;
+  for(const o of bs){if(n>=im.instanceMatrix.count)break;const s=o.res?Math.max(0.01,1-o.fade/0.7):1;v.set(OFF[kind]+o.x,o.y+M.R*s,OFFZ[kind]+o.z);sc.set(s,s,s);mat.compose(v,q,sc);im.setMatrixAt(n,mat);im.setColorAt(n,M.hot[o.wish]?cHotB:cColdB);n++;}
+  im.count=n;im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true;}}
+function simStep(dt){const n=Math.max(1,Math.round(dt/M.SUB)),sdt=dt/n;
+  for(let i=0;i<n;i++){S.t+=sdt;S.target+=M.RATE*sdt;
+    while(S.spawned<Math.min(S.target,M.TOTAL)&&sims.hard.balls.length<M.MAX_LIVE&&sims.soft.balls.length<M.MAX_LIVE){M.spawn(sims.hard,S.spawned,S.t);M.spawn(sims.soft,S.spawned,S.t);S.spawned++;}
+    M.step(sims.hard,sdt,S.t);M.step(sims.soft,sdt,S.t);}}
+const pct=(a,b)=>b?Math.round(100*a/b)+'%':'—';
+const $=id=>document.getElementById(id);
+function updateStats(){const h=sims.hard.st,s=sims.soft.st;
+  $('s-hard-cache').textContent=pct(h.cache,h.n);$('s-hard-own').textContent=pct(h.own,h.n);$('s-hard-stuck').textContent=pct(h.n-h.own,h.n);$('s-hard-n').textContent=h.n+(S.spawned>=M.TOTAL&&!sims.hard.balls.length?' (run complete)':'');
+  $('s-soft-cache').textContent=pct(s.cache,s.n);$('s-soft-own').textContent=pct(s.own,s.n);$('s-soft-slow').textContent=pct(s.slow,s.n);$('s-soft-n').textContent=s.n;}
+/* camera framing */
+function frame(){const w=canvas.clientWidth,h=canvas.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();
+  narrow=w<600;layout();
+  if(narrow&&S.view==='both'){const cz=(OFFZ.hard+M.LZ)/2,d=Math.max(44,22/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*camera.aspect));controls.target.set(0,0,cz);camera.position.set(0,d*0.9,cz+d*0.45);controls.update();
+    meshes.hard.visible=balls.hard.visible=labels.hard.visible=true;meshes.soft.visible=balls.soft.visible=labels.soft.visible=true;return;}
+  const width=S.view==='both'?2*M.W+GAP+2:M.W+3;const cx=S.view==='both'?(OFF.hard+OFF.soft+M.W)/2:OFF[S.view]+M.W/2;
+  const dist=Math.max(24,width/2/Math.tan(THREE.MathUtils.degToRad(camera.fov/2))/camera.aspect*1.12);
+  const zc=(S.view==='both'?0:OFFZ[S.view])+7.2;controls.target.set(cx,1.2,zc);camera.position.set(cx,dist*0.72,zc+dist*0.70);controls.update();
+  meshes.hard.visible=balls.hard.visible=labels.hard.visible=S.view!=='soft';meshes.soft.visible=balls.soft.visible=labels.soft.visible=S.view!=='hard';}
+function draw(){syncBalls();renderer.render(scene,camera);}
+let raf=0,last=0,statT=0;
+function loop(t){raf=0;const dt=Math.min(0.05,(t-last)/1000||0);last=t;if(S.playing){simStep(dt);statT+=dt;if(statT>0.25){statT=0;updateStats();}}
+  controls.update();draw();if(S.playing||controls._dragging)raf=requestAnimationFrame(loop);}
+function kick(){if(!raf){last=performance.now();raf=requestAnimationFrame(loop);}}
+controls.addEventListener('start',()=>{controls._dragging=true;kick();});controls.addEventListener('end',()=>{controls._dragging=false;kick();});
+controls.addEventListener('change',()=>{if(!raf)draw();});
+const btn=$('c3d-play');
+function setPlaying(p){S.playing=p;btn.textContent=p?'Pause':'Play';if(p){$('c3d-overlay').hidden=true;kick();}}
+btn.onclick=()=>setPlaying(!S.playing);
+function reset(){S.t=0;S.spawned=0;S.target=0;sims={hard:M.newSim('hard'),soft:M.newSim('soft')};updateStats();draw();}
+$('c3d-reset').onclick=reset;
+$('c3d-overlay-play').onclick=()=>setPlaying(true);
+const cap=$('c3d-cap'),capOut=$('c3d-capout');let capT=0;
+function capText(){const v=+cap.value;capOut.textContent=v===0?'0 (flat)':'−'+(v/50).toFixed(1);}
+cap.addEventListener('input',()=>{capText();clearTimeout(capT);capT=setTimeout(()=>{M.setS(cap.value/200);rebuild('soft');reset();},150);});
+fig.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{S.view=b.dataset.view;fig.querySelectorAll('[data-view]').forEach(x=>x.setAttribute('aria-pressed',x===b?'true':'false'));frame();draw();});
+new ResizeObserver(()=>{frame();draw();}).observe(canvas);
+new MutationObserver(retheme).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',retheme);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&S.playing)setPlaying(false);});
+/* start */
+capText();frame();retheme();
+function presim(sec){for(let t=0;t<sec;t+=1/60)simStep(1/60);updateStats();draw();}
+window.__C3D={step(sec){presim(sec);return {hard:{...sims.hard.st},soft:{...sims.soft.st},spawned:S.spawned};},setS(s){cap.value=Math.round(s*200);capText();M.setS(s);rebuild('soft');reset();},stats:()=>({hard:{...sims.hard.st},soft:{...sims.soft.st}}),play:()=>setPlaying(true),pause:()=>setPlaying(false)};
+const params=new URLSearchParams(location.search);
+if(params.has('selftest')){const out={};for(const s of [0,0.125,0.25,0.5]){window.__C3D.setS(s);out['s'+s]=window.__C3D.step(60);}
+  const pre=document.createElement('pre');pre.id='c3d-selftest';pre.textContent=JSON.stringify(out);document.body.appendChild(pre);window.__C3D.setS(0.25);}
+presim(params.has('frame')?Number(params.get('frame')):20);
+if(reduced){$('c3d-overlay').hidden=false;}
+else if('IntersectionObserver' in window&&!params.has('frame')){let auto=true;new IntersectionObserver(es=>{for(const e of es){if(e.isIntersecting&&auto){auto=false;setPlaying(true);}else if(!e.isIntersecting&&S.playing){setPlaying(false);auto=true;}}},{threshold:0.35}).observe(canvas);}
+}
+</script>
+
+<script>
+/* static fallback (no WebGL / no three.js): cross-section of both floors */
+window.__C3D_FALLBACK=function(why){if(window.__C3D_FALLEN)return;window.__C3D_FALLEN=true;var M=window.__C3D_MODEL;
+  var fig=document.getElementById('C3D');document.getElementById('c3d-canvas').style.display='none';
+  ['.c3d-stats','.transport','.options'].forEach(function(q){var e=fig.querySelector(q);if(e)e.style.display='none';});
+  var ill=fig.querySelector('.c3d-stats+.ill');if(ill)ill.style.display='none';
+  var f=document.getElementById('c3d-fallback');f.hidden=false;
+  var svg=document.getElementById('c3d-fallback-svg'),NS='http://www.w3.org/2000/svg';svg.setAttribute('viewBox','0 0 640 380');svg.textContent='';
+  function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);svg.appendChild(e);return e;}
+  var keep=M.s;M.setS(0.5);
+  [['hard','Hard mask',4],['soft','PGO-SGB, cap −2',190]].forEach(function(r){var y0=r[2]+82,sx=600/M.W,sy=70/M.DMAX,d='',zz=M.LZ-1.5;
+    for(var i=0;i<=360;i++){var x=i/360*M.W*0.9999;var y=M.h(r[0],x,zz)-M.base(zz);d+=(i?'L':'M')+(20+x*sx).toFixed(1)+','+(y0-y*sy).toFixed(1);}
+    el('path',{d:d,fill:'none',style:'stroke:var(--fg);stroke-width:2.5'});
+    for(var e=0;e<M.N;e++){el('rect',{x:20+e*sx+sx*0.25,y:y0+84,width:sx*0.5,height:8,rx:3,style:'fill:var(--'+(M.hot[e]?'c1':'discard')+')'});}
+    var t=el('text',{x:20,y:r[2]+22,'font-size':22,style:'fill:var(--fg)'});t.textContent=r[1];});
+  M.setS(keep);
+};
+</script>
+</body>
+</html>
