@@ -256,7 +256,7 @@ footer{border-top:1px solid var(--rule);padding-top:20px;margin-top:60px;font-si
 <li>It is lossy, and I measured how much: teacher-forced KL on 999 ABAP positions was 0.131 against the unpatched engine, where two runs of the unpatched engine differ by 0.045 from each other.</li>
 <li>Four smoke tasks, two runs each, on the combination: 8 of 8 resolved, and median calls stayed within 1.5× of cap −0.25 alone.</li>
 </ul>
-<p>I have the patch ready as a pull request for Project Maya upstream (not merged). It is opt-in and changes nothing with the variable unset.</p>
+<p>The patch is offered upstream as <a href="https://github.com/mw00/project-maya/pull/722">Project Maya PR #722</a> (open, not merged), with a speed report in <a href="https://github.com/mw00/project-maya/issues/723">issue #723</a>. It is opt-in and changes nothing with the variable unset.</p>
 </section>
 
 <div class="chart" id="ch-path"><h3>GLM-5.3-Flash on two RTX 4060 Ti: from 5.78 to 22.2 tokens/s</h3><p class="sub">Decode tokens/s, each bar adds one step. Medians; each bar comes from its own run (see tooltips), not one session: same-session gains are +63% (bias), +14.5% (patch), +4% (cancel).</p><div class="plot"></div></div>
