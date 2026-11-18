@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rescue $ZORK · oisee</title>
+<meta name="description" content="A worked example: getting your own ABAP package back out of a HANA database as an abapGit repository, from the command line and from VS Code, when the ABAP server is gone. With screenshots and a byte-for-byte proof.">
+<meta property="og:title" content="Rescue $ZORK: your ABAP code out of HANA, with no ABAP server">
+<meta property="og:description" content="Forgot to renew the trial licence? Your Z code is still in the database. 29 objects, 43 files, the same SHA-256 from the CLI and from VS Code.">
+<meta property="og:image" content="https://oois.ee/rescue-zork/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://oois.ee/rescue-zork/">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../avatar.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<style>
+/* Layout: one reading column, steps as a numbered rail, screenshots framed like panes of an editor */
+:root {
+  --bg: #f6f7f5;
+  --paper: #ffffff;
+  --fg: #1d2421;
+  --muted: #5b6862;
+  --line: #d9dfdb;
+  --accent: #0f6b52;
+  --accent-soft: #e2f0ea;
+  --warn: #8a5a00;
+  --warn-soft: #fbf1dc;
+  --code-bg: #eef1ef;
+  --display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121715; --paper: #1a201d; --fg: #e3e9e5; --muted: #9aa8a1; --line: #2c3531;
+    --accent: #5cc9a3; --accent-soft: #183028; --warn: #e8b85c; --warn-soft: #2d2512; --code-bg: #202825;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121715; --paper: #1a201d; --fg: #e3e9e5; --muted: #9aa8a1; --line: #2c3531;
+  --accent: #5cc9a3; --accent-soft: #183028; --warn: #e8b85c; --warn-soft: #2d2512; --code-bg: #202825;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 16px/1.6 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+}
+main { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.4rem); font-weight: 800; letter-spacing: -0.02em; }
+h1 code { font-family: var(--mono); font-weight: 500; color: var(--accent); background: none; padding: 0; font-size: 0.92em; }
+h2 { font-size: 1.6rem; font-weight: 800; display: flex; gap: 14px; align-items: baseline; }
+h2 .n { font-family: var(--mono); font-weight: 500; font-size: 1rem; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 6px; padding: 0 8px; flex: none; }
+h3 { font-size: 1.15rem; font-weight: 600; margin-top: 8px; }
+p { margin: 0; max-width: 65ch; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.55 var(--mono); }
+pre code { background: none; padding: 0; font-size: inherit; }
+.eyebrow { font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.lede { font-size: 1.15rem; color: var(--fg); }
+.meta { color: var(--muted); font-size: 0.92rem; }
+header { display: flex; flex-direction: column; gap: 18px; }
+.pkgs { display: flex; flex-wrap: wrap; gap: 8px; }
+.pkgs span { font: 500 13px/1 var(--mono); padding: 7px 10px; border-radius: 6px; background: var(--paper); border: 1px solid var(--line); }
+.pkgs span:first-child { border-color: var(--accent); color: var(--accent); }
+.note { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 12px 16px; border-radius: 0 8px 8px 0; max-width: 65ch; }
+.note b { color: var(--warn); }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 12px/1.3 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+tr:last-child td { border-bottom: none; }
+td.num { text-align: right; }
+.routes td:first-child { color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.stat b { font: 800 1.9rem/1.1 var(--display); color: var(--accent); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 0.88rem; }
+.steps { display: flex; flex-direction: column; gap: 28px; counter-reset: step; padding: 0; margin: 0; list-style: none; }
+.steps li { display: grid; grid-template-columns: 34px 1fr; gap: 14px; counter-increment: step; }
+.steps li::before { content: counter(step); font: 500 13px/30px var(--mono); text-align: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.steps .body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; box-shadow: 0 1px 0 var(--line); }
+figcaption { font-size: 0.85rem; color: var(--muted); }
+.pair { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.pair figure { flex: 1 1 260px; min-width: 0; }
+ul { margin: 0; padding-left: 1.2em; max-width: 65ch; display: flex; flex-direction: column; gap: 6px; }
+footer { color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--line); padding-top: 20px; }
+</style>
+
+</head>
+<body>
+<main>
+<p class="meta"><a href="../">oisee</a></p>
+<header>
+  <div class="eyebrow">open-steamgate · worked example · 2026-11-18</div>
+  <h1>Rescue <code>$ZORK</code> from a HANA database</h1>
+  <p class="lede">The ABAP server is gone. The HANA tenant behind it still runs. Here is one real rescue, start to finish: the code comes back as an abapGit repository, from the command line and from VS Code, and both give the same bytes.</p>
+  <div class="pkgs" aria-label="Packages"><span>$ZORK</span><span>$ZORK_00</span><span>$ZORK_01</span><span>$ZORK_02</span></div>
+  <p class="meta">The case: <a href="https://github.com/oisee/zork-abap">zork-abap</a>, a Z-machine interpreter written in ABAP, installed on a sandbox system in four local packages. Measured with release <a href="https://github.com/oisee/open-steamgate/releases/tag/vscode-stable-v0.7.3131">vscode-stable-v0.7.3131</a> and the pinned sidecar <code>osd-hana-dump</code> v2.62.1. Host, port, tenant, user, schema and author names are placeholders throughout.</p>
+</header>
+
+<section>
+  <div class="stats">
+    <div class="stat"><b>29</b><span>objects in scope</span></div>
+    <div class="stat"><b>19</b><span>written as source</span></div>
+    <div class="stat"><b>43</b><span>files, same SHA-256 in 4 runs</span></div>
+    <div class="stat"><b>2.8 s</b><span>extract time</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>The situation</h2>
+  <p>You run the ABAP Platform Trial 2025 in a container. Suppose you <b>forgot to renew the ABAP licence</b>. ABAP stops letting you work, and the container's start script stops the whole container when ABAP stops. But your own developments are still there: they live in the HANA database, and the HANA in the 2025 image has its own built-in licence, valid until <b>2028-02-11</b>.</p>
+  <ul>
+    <li><b>If your A4H still works:</b> great. Export from the server while you can: abapGit, or <code>vsp export</code> (route 1).</li>
+    <li><b>If it no longer does:</b> start the container's HANA on its own, without ABAP, and pick your code out of the database (routes 2 and 3). Do not delete the container or its volumes.</li>
+    <li><b>Trial 2023 is different:</b> there the HANA key is a temporary key like ABAP's and expires with it. Take a backup of the tenant while the key is valid and restore it into a HANA that lives longer (the 2025 image, or HANA express, which has no expiry).</li>
+  </ul>
+  <div class="note"><b>Being checked:</b> the exact command to start only HANA in the 2025 container, and when the 2025 image's ABAP key itself expires. This page will name both once verified.</div>
+</section>
+
+<section>
+  <h2>Which route</h2>
+  <div class="tbl"><table class="routes">
+    <thead><tr><th>Situation</th><th>Route</th></tr></thead>
+    <tbody>
+      <tr><td>The ABAP server still runs</td><td>Export from the server: abapGit, or <code>vsp export</code></td></tr>
+      <tr><td>The server is gone, the database is not</td><td><code>osd hana extract</code> on the command line: an abapGit repository</td></tr>
+      <tr><td>The same, raw</td><td><code>vsp hana dump</code>: sources as <code>.abap</code> files plus repository rows as JSONL, no abapGit layout</td></tr>
+      <tr><td>The same, from VS Code</td><td>"OSD: Extract my code from HANA" with <b>Only package…</b> (0.7.3140 and later)</td></tr>
+    </tbody>
+  </table></div>
+  <p>A live server knows things the database does not show: screens, GUI statuses, transactions, MIME objects. If the server can still be started, export from it first.</p>
+</section>
+
+<section>
+  <h2><span class="n">1</span>While the server is alive: vsp export</h2>
+  <p><a href="https://github.com/oisee/vibing-steampunk">vsp</a> exports packages as an abapGit ZIP through its <code>ZADT_VSP</code> WebSocket service on the ABAP server (see "Export &amp; Import" in its <a href="https://github.com/oisee/vibing-steampunk/blob/main/docs/cli-guide.md">cli-guide</a>).</p>
+  <pre><code>vsp export '$ZORK' -o zork.zip --subpackages</code></pre>
+  <p class="meta">Not run for this example: the server was no longer reachable. abapGit itself (online or offline repository) is the other server-side route.</p>
+</section>
+
+<section>
+  <h2><span class="n">1b</span>Before you export: run it over HANA</h2>
+  <div class="note"><b>Do not run your SAP application this way in production.</b> This is a check of your own code on your own bed: does it still answer when it reads the very database it lives in? The host listens on 127.0.0.1 only, answers GET and HEAD only, and the database session is read-only.</div>
+  <p>OSG can build the rescued code straight from the tenant's tables and serve the tenant's own ICF nodes with it, with no ABAP server. It also reads MIME objects (SMW0) from the tenant's <code>WWWDATA</code> when the code asks for one, so Zork gets its story file from the database itself, which an export cannot give you.</p>
+  <pre><code>node tools/hana-serve-scope.mjs --root &lt;HTTP_HANDLER&gt; [--root ...]
+( set -a; . &lt;env file&gt;; set +a
+  STG_DB=hana HANA_EXISTING_SCHEMA=1 OSD_CLIENT=&lt;client&gt; OSD_WEB_PACKS=none \
+  node tools/hana-serve.mjs --port &lt;port&gt; --w3mi-check &lt;OBJID&gt; )
+curl -s http://127.0.0.1:&lt;port&gt;/sap/bc/zork/</code></pre>
+  <p>The scope cut keeps only what the named roots reach: for Zork the HTTP handler, the Z-machine and the SMW0 loader, 9 code objects, while 104 objects (the push channel, GUI reports, and an AI library the push channel pulls in) stay out of the build. The only DDL the host sends is two synonyms in a schema of your own, never in the tenant.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Check over HANA (2026-11-18)</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /sap/bc/zork/</code></td><td>200, text/html, 12 930 bytes, the tenant's own handler class on its own node</td></tr>
+      <tr><td>HEAD / POST / another client</td><td>200 / 405 / 400</td></tr>
+      <tr><td>Story file out of <code>WWWDATA</code></td><td>52 216 bytes, SHA-256 equal to the file in zork-abap</td></tr>
+      <tr><td>The tenant's Z-machine on that story</td><td>"open mailbox" answers "Opening the small mailbox reveals a leaflet."</td></tr>
+      <tr><td>Writes to the database</td><td>none (trace checked)</td></tr>
+    </tbody>
+  </table></div>
+  <p class="meta">Not yet: the game page talks to the push channel (APC) over a websocket, and that channel keeps its sessions with <code>EXPORT ... TO SHARED MEMORY</code>, which the transpiler does not support yet. That is the next step. Code: <a href="https://github.com/oisee/open-steamgate/pull/984">#984</a>, guide <code>docs/hana-serve-icf.md</code>.</p>
+</section>
+
+<section>
+  <h2><span class="n">2</span>The server is gone: the command line</h2>
+  <p>Get <code>osd</code> and the sidecar from the release, then point <code>osd</code> at the sidecar. The password is never a flag: without <code>--password-stdin</code> or <code>OSD_HANA_PASSWORD</code>, <code>osd</code> asks for it on the terminal.</p>
+  <pre><code>export OSD_HANA_DUMP=~/bin/osd-hana-dump-linux-amd64</code></pre>
+
+  <h3>Is the code still there?</h3>
+  <pre><code>osd hana doctor --host hana.example --port 30015 --database TENANT --user RESCUER</code></pre>
+  <pre><code>Verdict for the ABAP rescue:
+  Reachable: yes -- logged on as RESCUER to hana.example, a tenant database.
+  ABAP schema &lt;SCHEMA&gt;: found, release 758/0000000002, clients 000, 001,
+    repository: 3018348 source rows (REPOSRC), 1339131 repository objects (TADIR).
+  ABAP server still attached: unknown (informational).
+  This login is another kind of login (not the schema owner, not an
+    administrator) and can only read.
+  TLS: off -- the connection is NOT encrypted.
+  Ready to extract: yes -- the next step is `osd hana extract`.</code></pre>
+  <p>Exit code 0. A plain read-only user is all the rescue needs.</p>
+
+  <h3>Look at the plan first</h3>
+  <pre><code>osd hana extract --host hana.example --port 30015 --database TENANT --user RESCUER \
+  --package '$ZORK%' --out ~/rescue/zork --dry-run</code></pre>
+  <pre><code>plan: 29 objects in scope (system holds 29: 29 customer, 0 sap)
+  per type:
+    CLAS         14      0.1 MB
+    INTF          2      0.0 MB
+    PROG          3      0.0 MB
+    SAPC          1      0.0 MB  (unsupported -- will be listed, not written)
+    SICF          2      0.0 MB  (unsupported -- will be listed, not written)
+    SUSH          1      0.0 MB  (unsupported -- will be listed, not written)
+    TRAN          2      0.0 MB  (unsupported -- will be listed, not written)
+    W3MI          4      0.0 MB  (unsupported -- will be listed, not written)
+  per package:
+    $ZORK          4      $ZORK_00      14
+    $ZORK_01       5      $ZORK_02       6</code></pre>
+  <div class="note"><b>With 0.7.3131, add <code>--no-local</code>.</b> In that release <code>--package</code> alone does not narrow (the plan held all 22 828 local objects of the system), and <code>*</code> is not a wildcard, only <code>%</code> is. Both are fixed in 0.7.3140.</div>
+
+  <h3>Extract</h3>
+  <p>The same command without <code>--dry-run</code>. On a terminal it prints the plan and asks before it writes; <code>--yes</code> answers for a script.</p>
+  <pre><code>sources: 255 programs in 1 statements
+sources: 255 written, 0 failed to decode
+extract-report: ~/rescue/zork/extract-report.md
+10 objects of 29 could not be fully extracted (SAPC 1, SICF 2, SUSH 1,
+TRAN 2, W3MI 4). 19 objects written.</code></pre>
+  <div class="tbl"><table>
+    <thead><tr><th>Type</th><th class="num">In scope</th><th class="num">Written</th><th class="num">Unsupported</th></tr></thead>
+    <tbody>
+      <tr><td>CLAS</td><td class="num">14</td><td class="num">14</td><td class="num"></td></tr>
+      <tr><td>INTF</td><td class="num">2</td><td class="num">2</td><td class="num"></td></tr>
+      <tr><td>PROG</td><td class="num">3</td><td class="num">3</td><td class="num"></td></tr>
+      <tr><td>SAPC, SICF, SUSH, TRAN, W3MI</td><td class="num">10</td><td class="num"></td><td class="num">10</td></tr>
+      <tr><td><b>Total</b></td><td class="num"><b>29</b></td><td class="num"><b>19</b></td><td class="num"><b>10</b></td></tr>
+    </tbody>
+  </table></div>
+  <p>Exit code 3 means "partial": the 10 unsupported objects (APC application, two ICF nodes, an authorization default, two transactions, four MIME objects) are listed in the report and not written. The result is 41 files under <code>src/</code> (22 <code>.abap</code>, 19 <code>.xml</code>) plus <code>.abapgit.xml</code>, folder logic FULL.</p>
+  <pre><code>src/zork_00/   12 classes and 2 interfaces (31 files)
+src/zork_01/    3 programs (6 files)
+src/zork_02/    2 classes (4 files)</code></pre>
+  <p class="meta">Before you publish the folder, delete <code>extract-report.md</code>, <code>extract-report.json</code> and <code>.osd-hana/</code>.</p>
+</section>
+
+<section>
+  <h2><span class="n">3</span>The same from VS Code</h2>
+  <p>Install <code>open-steamgate-&lt;platform&gt;-&lt;version&gt;.vsix</code> from the release: the platform package carries the sidecar. Screenshots are from VS Code 1.147 on Linux, with the <b>Only package…</b> step that ships in 0.7.3140 (<a href="https://github.com/oisee/open-steamgate/pull/983">#983</a>). With 0.7.3131, use the command line with <code>--no-local</code>.</p>
+  <ol class="steps">
+    <li><div class="body"><p><b>Command palette:</b> "OSD: Extract my code from HANA".</p>
+      <figure><img src="img/01-command-palette.png" alt="The command in the command palette"></figure></div></li>
+    <li><div class="body"><p><b>Connection:</b> host, port, tenant and user, one box each, then the password. It is used for this run only.</p>
+      <div class="pair">
+        <figure><img src="img/02-connection-host.png" alt="The host box"><figcaption>Host, 1 of 4</figcaption></figure>
+        <figure><img src="img/03-password.png" alt="The password box"><figcaption>Password, never stored</figcaption></figure>
+      </div></div></li>
+    <li><div class="body"><p><b>Doctor:</b> the check runs in a cancellable notification and offers to remember the connection (without the password). The verdict is the same text as <code>osd hana doctor</code>.</p>
+      <figure><img src="img/04-doctor-progress.png" alt="The doctor running"></figure>
+      <figure><img src="img/05-doctor-verdict.png" alt="The doctor verdict"></figure></div></li>
+    <li><div class="body"><p><b>Plan:</b> everything the login can see that counts as yours. On this sandbox that is 22 828 local objects of nine authors (masked; the author of <code>$ZORK</code> is ZORK_DEV).</p>
+      <figure><img src="img/06-plan-all-local.png" alt="The plan for the whole database"></figure></div></li>
+    <li><div class="body"><p><b>Only package…</b> narrows to a package name or pattern. In a pattern <code>%</code> (or <code>*</code>) is any text and <code>_</code> any one character.</p>
+      <figure><img src="img/07-plan-only-package.png" alt="The Only package action"></figure>
+      <figure><img src="img/08-package-pattern.png" alt="The pattern $ZORK%"></figure></div></li>
+    <li><div class="body"><p>The plan is listed again: 29 objects, the same numbers as on the command line. Beside a pattern it offers only <b>Change package pattern…</b>, because an author filter would add that author's objects from other packages.</p>
+      <figure><img src="img/09-plan-narrowed.png" alt="The plan for $ZORK%: 29 objects"></figure></div></li>
+    <li><div class="body"><p><b>Folder and consent:</b> an empty folder, then the question with the plan's numbers. Nothing is read before <b>Extract</b>.</p>
+      <div class="pair">
+        <figure><img src="img/10-folder.png" alt="Choosing the output folder"></figure>
+        <figure><img src="img/11-consent.png" alt="The consent question"></figure>
+      </div></div></li>
+    <li><div class="body"><p><b>Progress:</b> cancellable; the line shows what the sidecar is doing.</p>
+      <figure><img src="img/12-progress.png" alt="Extraction in progress"></figure></div></li>
+    <li><div class="body"><p><b>Done:</b> the report opens. It is a warning because 10 objects are unsupported (exit 3). The folder is the same repository the command line wrote.</p>
+      <figure><img src="img/13-report.png" alt="The report and the result notification"></figure>
+      <figure style="max-width:320px"><img src="img/14-folder-tree.png" alt="The rescued folder in the explorer"></figure></div></li>
+  </ol>
+</section>
+
+<section>
+  <h2><span class="n">4</span>The proof</h2>
+  <p><b>Same input, same bytes.</b> Four runs into four empty folders wrote the same 43 files (41 under <code>src/</code>, <code>.abapgit.xml</code>, <code>.gitignore</code>), each with the same SHA-256.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Run</th><th>Selection</th></tr></thead>
+    <tbody>
+      <tr><td>Command line, 0.7.3131 (twice)</td><td><code>--no-local --package '$ZORK%'</code></td></tr>
+      <tr><td>Command line, #983</td><td><code>--package '$ZORK%'</code></td></tr>
+      <tr><td>VS Code, #983</td><td><b>Only package…</b> <code>$ZORK%</code></td></tr>
+    </tbody>
+  </table></div>
+  <p><b>Against the public source.</b> The 41 rescued files compared byte for byte with <a href="https://github.com/oisee/zork-abap">zork-abap</a>:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Compared with</th><th class="num">Identical</th><th class="num">Different</th><th class="num">Only rescued</th><th class="num">Only upstream</th></tr></thead>
+    <tbody>
+      <tr><td>commit <code>0c8d96b</code> (pinned by the pack)</td><td class="num">18</td><td class="num">19</td><td class="num">4</td><td class="num">19</td></tr>
+      <tr><td>commit <code>dfaef62</code> (best match on main)</td><td class="num">35</td><td class="num">2</td><td class="num">4</td><td class="num">14</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li>39 of the 41 files are byte-identical to a file somewhere in the repository's history: the system held an older version.</li>
+    <li>The 4 rescued-only files are the two classes of <code>$ZORK_02</code>, identical to the never-merged <code>apc-console</code> branch.</li>
+    <li>One class differs from every commit by a single comment line, edited on the system and never pushed. The rescue is the only copy of it.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Known limits seen here</h2>
+  <ul>
+    <li>MIME objects, transactions, ICF nodes, APC applications and authorization defaults are listed, not written. So the rescued interpreter has no story file and does not start on its own.</li>
+    <li>No <code>package.devc.xml</code> is written; screens and GUI statuses are not in the dump.</li>
+    <li>Fixed in 0.7.3140 (<a href="https://github.com/oisee/open-steamgate/pull/983">#983</a>): <code>--package</code> narrowing without <code>--no-local</code>, <code>*</code> as a wildcard, the package step in VS Code, a stop with exit code 6 on a chunk of only MIME objects, and sources looked up in the wrong folder in dumps over 500 objects.</li>
+  </ul>
+</section>
+
+<footer>The general guide with every flag and report state: <a href="https://github.com/oisee/open-steamgate/blob/main/docs/hana-rescue.md">docs/hana-rescue.md</a>. The tool reads only: the session opens read-only and the sidecar lets only queries through.</footer>
+</main>
+</body>
+</html>
