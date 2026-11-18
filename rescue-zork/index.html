@@ -170,10 +170,22 @@ curl -s http://127.0.0.1:&lt;port&gt;/sap/bc/zork/</code></pre>
       <tr><td>HEAD / POST / another client</td><td>200 / 405 / 400</td></tr>
       <tr><td>Story file out of <code>WWWDATA</code></td><td>52 216 bytes, SHA-256 equal to the file in zork-abap</td></tr>
       <tr><td>The tenant's Z-machine on that story</td><td>"open mailbox" answers "Opening the small mailbox reveals a leaflet."</td></tr>
+      <tr><td>The game in the browser, over the push channel</td><td>connects; look, open mailbox, read leaflet, go north all answer</td></tr>
       <tr><td>Writes to the database</td><td>none (trace checked)</td></tr>
     </tbody>
   </table></div>
-  <p class="meta">Not yet: the game page talks to the push channel (APC) over a websocket, and that channel keeps its sessions with <code>EXPORT ... TO SHARED MEMORY</code>, which the transpiler does not support yet. That is the next step. Code: <a href="https://github.com/oisee/open-steamgate/pull/984">#984</a>, guide <code>docs/hana-serve-icf.md</code>.</p>
+  <h3>And it plays</h3>
+  <p>With the push channel (APC) mounted from the tenant's own APC application row, the page's websocket connects and the game runs in the browser: the tenant's channel class, the tenant's Z-machine, the story file out of <code>WWWDATA</code>, all over the HANA database, with no ABAP server.</p>
+  <ol class="steps">
+    <li><div class="body"><p><b>Connected.</b> The channel keeps its session list in <code>EXPORT ... TO SHARED MEMORY</code>; the connection count in the session line is read back from it.</p>
+      <figure><img src="img/zork-01-connected.png" alt="Zork connected over HANA"></figure></div></li>
+    <li><div class="body"><p><b>look</b> and <b>open mailbox</b>.</p>
+      <figure><img src="img/zork-03-open-mailbox.png" alt="open mailbox reveals a leaflet"></figure></div></li>
+    <li><div class="body"><p><b>read leaflet</b>, <b>go north</b>.</p>
+      <figure><img src="img/zork-over-hana.png" alt="read leaflet and go north"></figure></div></li>
+  </ol>
+  <p>What it took: <code>EXPORT</code>/<code>IMPORT</code> to shared memory and the <code>decfloat16</code> type in the transpiler (offered upstream), the tenant's APC row routed to our APC host with <code>--apc</code>, and the channel's AI members cut from the build (an AI library it does not need to play; calling a cut member fails loudly). Still 0 writes to the database; the only DDL is synonyms in a schema of our own.</p>
+  <p class="meta">Code: <a href="https://github.com/oisee/open-steamgate/pull/984">#984</a> (HTTP and story file) and <a href="https://github.com/oisee/open-steamgate/pull/985">#985</a> (APC), guide <code>docs/hana-serve-icf.md</code>.</p>
 </section>
 
 <section>
