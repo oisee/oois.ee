@@ -123,11 +123,11 @@ footer { color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--li
 
 <section>
   <h2>The situation</h2>
-  <p>You run the ABAP Platform Trial 2025 in a container. Suppose you <b>forgot to renew the ABAP licence</b>. ABAP stops letting you work, and the container's start script stops the whole container when ABAP stops. But your own developments are still there: they live in the HANA database, and the HANA in the 2025 image has its own built-in licence, valid until <b>2028-02-11</b>.</p>
+  <p>You run the ABAP Platform Trial 2025 in a container. Suppose the <b>ABAP licence has run out</b> and you did not export your code in time. ABAP stops letting you work, and the container's start script stops the whole container when ABAP stops. But your own developments are still there: they live in the HANA database, and the HANA in the 2025 image has its own built-in licence, valid until <b>2028-02-11</b>.</p>
   <ul>
     <li><b>If your A4H still works:</b> great. Export from the server while you can: abapGit, or <code>vsp export</code> (route 1).</li>
     <li><b>If it no longer does:</b> start the container's HANA on its own, without ABAP, and pick your code out of the database (routes 2 and 3). Do not delete the container or its volumes.</li>
-    <li><b>Trial 2023 is different:</b> there the HANA key is a temporary key like ABAP's and expires with it. Take a backup of the tenant while the key is valid and restore it into a HANA that lives longer (the 2025 image, or HANA express, which has no expiry).</li>
+    <li><b>Trial 2023 is different:</b> there the HANA key is a temporary key like ABAP's and expires with it. Export your code while the system still runs.</li>
   </ul>
   <div class="note"><b>Not tried here:</b> we did not let a stock 2025 container lapse on purpose, so this page gives no command for starting its HANA on its own. Our runs used a HANA that holds a restored copy of the tenant. If your container stops with ABAP, the database files are still on its volumes; keep them.</div>
 </section>
@@ -139,7 +139,7 @@ footer { color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--li
     <tbody>
       <tr><td>The ABAP server still runs</td><td>Export from the server: abapGit, or <code>vsp export</code></td></tr>
       <tr><td>The server is gone, the database is not</td><td><code>osd hana extract</code> on the command line: an abapGit repository</td></tr>
-      <tr><td>The same, raw</td><td><code>vsp hana dump</code>: sources as <code>.abap</code> files plus repository rows as JSONL, no abapGit layout</td></tr>
+      <tr><td>The same, raw</td><td><code>vsp hana dump</code>: sources as <code>.abap</code> files plus repository rows as JSONL, no abapGit layout; writes only outside a git working tree</td></tr>
       <tr><td>The same, from VS Code</td><td>"OSD: Extract my code from HANA" with <b>Only package…</b> (0.7.3140 and later)</td></tr>
     </tbody>
   </table></div>
@@ -148,7 +148,7 @@ footer { color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--li
 
 <section>
   <h2><span class="n">1</span>While the server is alive: vsp export</h2>
-  <p><a href="https://github.com/oisee/vibing-steampunk">vsp</a> exports packages as an abapGit ZIP through its <code>ZADT_VSP</code> WebSocket service on the ABAP server (see "Export &amp; Import" in its <a href="https://github.com/oisee/vibing-steampunk/blob/main/docs/cli-guide.md">cli-guide</a>).</p>
+  <p><a href="https://github.com/oisee/vibing-steampunk">vsp</a> exports packages as an abapGit ZIP. It is not install-free: it talks to its <code>ZADT_VSP</code> WebSocket service on the ABAP server and uses abapGit there (see "Export &amp; Import" in its <a href="https://github.com/oisee/vibing-steampunk/blob/main/docs/cli-guide.md">cli-guide</a>). <code>vsp rfc export</code> does the same in one RFC call. Both need a running ABAP server with abapGit installed.</p>
   <pre><code>vsp export '$ZORK' -o zork.zip --subpackages</code></pre>
   <p class="meta">Not run for this example: the server was no longer reachable. abapGit itself (online or offline repository) is the other server-side route.</p>
 </section>
@@ -313,6 +313,7 @@ src/zork_02/    2 classes (4 files)</code></pre>
   <ul>
     <li>MIME objects, transactions, ICF nodes, APC applications and authorization defaults are listed, not written. So the rescued interpreter has no story file and does not start on its own.</li>
     <li>No <code>package.devc.xml</code> is written; screens and GUI statuses are not in the dump.</li>
+    <li>Keep it to your own code: do not publish SAP-delivered code from a dump, do not commit dumps to public repositories, and do not share container images, database backups or licence keys.</li>
     <li>Fixed in 0.7.3140 (<a href="https://github.com/oisee/open-steamgate/pull/983">#983</a>): <code>--package</code> narrowing without <code>--no-local</code>, <code>*</code> as a wildcard, the package step in VS Code, a stop with exit code 6 on a chunk of only MIME objects, and sources looked up in the wrong folder in dumps over 500 objects.</li>
   </ul>
 </section>
