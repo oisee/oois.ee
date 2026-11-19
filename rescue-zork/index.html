@@ -129,7 +129,7 @@ footer { color: var(--muted); font-size: 0.88rem; border-top: 1px solid var(--li
     <li><b>If it no longer does:</b> start the container's HANA on its own, without ABAP, and pick your code out of the database (routes 2 and 3). Do not delete the container or its volumes.</li>
     <li><b>Trial 2023 is different:</b> there the HANA key is a temporary key like ABAP's and expires with it. Take a backup of the tenant while the key is valid and restore it into a HANA that lives longer (the 2025 image, or HANA express, which has no expiry).</li>
   </ul>
-  <div class="note"><b>Being checked:</b> the exact command to start only HANA in the 2025 container, and when the 2025 image's ABAP key itself expires. This page will name both once verified.</div>
+  <div class="note"><b>Not tried here:</b> we did not let a stock 2025 container lapse on purpose, so this page gives no command for starting its HANA on its own. Our runs used a HANA that holds a restored copy of the tenant. If your container stops with ABAP, the database files are still on its volumes; keep them.</div>
 </section>
 
 <section>
